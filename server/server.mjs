@@ -15,7 +15,7 @@ const DATA_DIR = join(SERVER_DIR, 'data');
 const DATA_FILE = join(DATA_DIR, 'rooms.json');
 const REPOS_DIR = join(DATA_DIR, 'repos');
 
-const MAX_ONLINE = 8;
+const MAX_ONLINE = 16;
 const MAX_MESSAGES = 1_000;
 const MAX_CHANNELS = 50;
 const MAX_CHAT_CHARS = 2_000;
@@ -148,12 +148,19 @@ function roleOf(room, id) {
   return role !== 'owner' && ROLES.includes(role) ? role : 'member';
 }
 
+// AI helpers get less than the person they work for: they can read, chat, and edit files,
+// but never delete, run the room, or change settings.
+const AGENT_BLOCKED = [
+  'files:delete', 'channels:create', 'channels:manage', 'members:manage', 'members:kick',
+  'invite:reset', 'settings', 'repo', 'files:restore-all',
+];
+
 function permissionsOf(room, id) {
   const role = roleOf(room, id);
   const list = [...PERMISSIONS[role]];
   if (role === 'member' && room.settings.membersCanCreateChannels) list.push('channels:create');
   if (role === 'member' && room.settings.membersCanDeleteFiles) list.push('files:delete');
-  return list;
+  return room.people[id]?.agent ? list.filter((action) => !AGENT_BLOCKED.includes(action)) : list;
 }
 
 function can(room, id, action) {
@@ -484,6 +491,7 @@ function membersOf(room) {
     joinedAt: room.people[id].joinedAt,
     where: socket.where ?? '',
     role: roleOf(room, id),
+    agent: Boolean(room.people[id].agent),
   }));
 }
 
@@ -547,7 +555,10 @@ function makeRoom(owner, name, repoUrl) {
 
 /* ---------- Joining and leaving ---------- */
 
-function attach(ws, room, id, name, color, announce) {
+function attach(ws, room, id, name, color, announce, agent = false) {
+  // An AI helper is always shown as one, so it can never pass for a person.
+  if (agent) name = ('AI \u00b7 ' + name.replace(/^AI\b[\s\u00b7:-]*/i, '')).slice(0, 28);
+  ws.agent = agent;
   if (isBanned(room, id, ws.ip)) {
     sendError(ws, 'You were removed from this room.', 'banned');
     return;
@@ -564,7 +575,7 @@ function attach(ws, room, id, name, color, announce) {
   }
 
   const isNew = !room.people[id];
-  room.people[id] = { name, color, joinedAt: room.people[id]?.joinedAt ?? new Date().toISOString(), ip: ws.ip ?? '' };
+  room.people[id] = { name, color, joinedAt: room.people[id]?.joinedAt ?? new Date().toISOString(), ip: ws.ip ?? '', agent };
   // Optionally, people arriving for the first time start as viewers until the owner or an admin lets them in.
   if (isNew && room.settings.newPeopleStartAsViewers && id !== room.ownerId) room.roles[id] = 'viewer';
   if (previous && previous !== ws) {
@@ -596,7 +607,7 @@ function attach(ws, room, id, name, color, announce) {
   send(ws, { type: 'trash', items: repo ? repo.trashList() : [] });
   send(ws, { type: 'preview', rev: previewRevs.get(room.id) ?? 0 });
   sendBans(ws, room, id);
-  if (!previous && announce) addSystemMessage(room, name + ' joined the room.');
+  if (!previous && announce && !agent) addSystemMessage(room, name + ' joined the room.');
   broadcast(room, { type: 'members', members: membersOf(room) });
   scheduleSave();
 }
@@ -610,7 +621,7 @@ function detach(ws) {
   if (!room || !connections || connections.get(ctx.id) !== ws) return;
   connections.delete(ctx.id);
   if (connections.size === 0) online.delete(ctx.roomId);
-  addSystemMessage(room, (room.people[ctx.id]?.name ?? 'Someone') + ' left the room.');
+  if (!room.people[ctx.id]?.agent) addSystemMessage(room, (room.people[ctx.id]?.name ?? 'Someone') + ' left the room.');
   broadcast(room, { type: 'members', members: membersOf(room) });
 }
 
@@ -626,8 +637,13 @@ function handle(ws, msg) {
     const id = publicId(msg.clientId);
     const name = cleanText(msg.name, 28) || 'Player';
     const color = cleanColor(msg.color);
+    const agent = msg.agent === true;
 
     if (msg.type === 'create') {
+      if (agent) {
+        sendError(ws, 'AI helpers cannot create rooms.');
+        return;
+      }
       const repoUrl = parseGitHubRepo(msg.repoUrl);
       const roomName = cleanText(msg.roomName, 56) || repoNameOf(repoUrl) || 'Untitled room';
       const room = makeRoom({ id, name, color }, roomName, repoUrl);
@@ -646,7 +662,7 @@ function handle(ws, msg) {
       sendError(ws, 'That invite link is not valid for this room.', 'bad-key');
       return;
     }
-    attach(ws, room, id, name, color, true);
+    attach(ws, room, id, name, color, true, agent);
     return;
   }
 
@@ -658,7 +674,7 @@ function handle(ws, msg) {
   if (msg.type === 'chat') {
     if (!permit(ws, room, ctx.id, 'chat', 'chat')) return;
     if (typeof msg.text !== 'string' || typeof msg.channelId !== 'string') return;
-    const kind = msg.kind === 'ai' ? 'ai' : 'chat';
+    const kind = msg.kind === 'ai' || room.people[ctx.id].agent ? 'ai' : 'chat';
     const text = msg.text.trim();
     if (!text || text.length > (kind === 'ai' ? MAX_AI_CHARS : MAX_CHAT_CHARS)) return;
     if (!room.channels.some((channel) => channel.id === msg.channelId)) return;
@@ -667,7 +683,7 @@ function handle(ws, msg) {
       id: randomUUID(),
       channelId: msg.channelId,
       authorId: ctx.id,
-      authorName: kind === 'ai' ? 'AI \u00b7 ' + person.name : person.name,
+      authorName: kind === 'ai' && !person.agent ? 'AI \u00b7 ' + person.name : person.name,
       authorColor: person.color,
       kind,
       text,
@@ -716,6 +732,10 @@ function handle(ws, msg) {
     const target = typeof msg.id === 'string' ? msg.id : '';
     if (!room.people[target] || target === room.ownerId || target === ctx.id || !['admin', 'member', 'viewer'].includes(msg.role)) {
       notice(ws, "You can't change that person's role.");
+      return;
+    }
+    if (msg.role === 'admin' && room.people[target].agent) {
+      notice(ws, 'AI helpers cannot be admins.');
       return;
     }
     // Admins can only manage people below them.

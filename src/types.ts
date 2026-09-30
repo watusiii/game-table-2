@@ -58,6 +58,7 @@ export interface RoomMember {
   joinedAt: string;
   where: string;
   role: Role;
+  agent: boolean;
 }
 
 // Live pointer position, normalized 0..1 across the window. x < 0 means hidden.

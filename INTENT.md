@@ -39,7 +39,11 @@ The first Game Table (game-table) went that way. This is a restart with the idea
 - Author colors: every stretch of text is tinted by who wrote it, with a legend. Authorship is declared by each person's browser, so it is a record for the team, not proof. Server-verified attribution is a later step.
 - Safety nets: undo for deleted files, version history with restore, a secret scanner before pushing, typed confirmation to close a room, clean shutdown.
 
-## Agents (decided direction)
+## Agents (built: first version)
+
+The `cli/` folder is the first version: `login`, `status`, `read`, `say`, `listen`, `files`, `cat`, `write`, `create`. An AI helper joins as its own member labeled "AI · Name", is capped below a person (no deleting, no running the room, never admin, can't pass for human), and everything it reads from the room is wrapped and labeled untrusted, because other people's text can carry instructions aimed at an AI. See `cli/AGENT_GUIDE.md`.
+
+Original direction, kept for reference:
 
 - An AI is a tool that belongs to a person, not a separate member. It acts as its human and shows up as "AI - Name" (the `ai` message kind already exists).
 - Agents reach the room through a **command-line tool** (Hendrix's suggestion). A CLI is the universal interface: anything that can run a terminal works, whether that is Claude Code, Codex, or a local model. Model-agnostic by construction.

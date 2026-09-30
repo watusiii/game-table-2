@@ -934,7 +934,11 @@ function renderMembers(view: RoomUi, snapshot: RoomSnapshot): void {
   renderedMembersKey = key;
   view.memberList.replaceChildren(
     ...snapshot.members.map((member) => {
-      const tags = [(member.role ?? 'member') !== 'member' ? (member.role as string).toUpperCase() : '', member.id === snapshot.myId ? 'YOU' : '']
+      const tags = [
+        (member.role ?? 'member') !== 'member' ? (member.role as string).toUpperCase() : '',
+        member.agent ? 'AI' : '',
+        member.id === snapshot.myId ? 'YOU' : '',
+      ]
         .filter(Boolean)
         .join(' · ');
       const row = el('div', 'member');

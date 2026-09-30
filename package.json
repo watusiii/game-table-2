@@ -8,6 +8,7 @@
     "dev:client": "vite",
     "share": "vite build && node scripts/dev.mjs --preview",
     "server": "node server/server.mjs",
+    "table": "node cli/table.mjs",
     "build": "vite build",
     "typecheck": "tsc --noEmit"
   },

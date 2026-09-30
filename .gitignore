@@ -4,4 +4,13 @@ dist/
 .env
 .env.*
 !.env.example
+
+# Everything the server creates while running: rooms, invite keys, connection addresses,
+# copies of connected repos, deleted-file trash. Never commit any of it.
 server/data/
+
+# Your own setting for which repo older rooms start with. Copy config.example.json to make it.
+server/config.json
+
+# The AI helper command line is its own repo (game-table-cli), kept next to this one.
+/cli/
