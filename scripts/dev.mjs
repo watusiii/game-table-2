@@ -12,6 +12,10 @@ const children = [
   spawn(process.execPath, ['node_modules/vite/bin/vite.js', ...viteArgs], { stdio: 'inherit' }),
 ];
 
+if (process.argv.includes('--codex')) {
+  children.push(spawn(process.execPath, ['scripts/codex-bridge.mjs'], { stdio: 'inherit' }));
+}
+
 let interrupted = false;
 const exited = new Set();
 const forceStop = () => children.forEach((child) => child.kill());
