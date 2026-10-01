@@ -24,7 +24,9 @@ class BridgeError extends Error {
 }
 
 export function allowedOrigins(value = process.env.GAME_TABLE_ORIGINS) {
-  const values = value ? value.split(',').map((item) => item.trim()).filter(Boolean) : DEFAULT_ORIGINS;
+  // Extra origins (like a share link) are added to the local defaults, never replace them.
+  const extra = value ? value.split(',').map((item) => item.trim()).filter(Boolean) : [];
+  const values = [...DEFAULT_ORIGINS, ...extra];
   return new Set(values.map((value) => {
     const url = new URL(value);
     if (!['http:', 'https:'].includes(url.protocol) || url.origin !== value) {
@@ -317,7 +319,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     await bridge.listen(port);
     console.log(`Local Codex bridge: http://127.0.0.1:${port}`);
     console.log(`Pairing key: ${bridge.token}`);
-    console.log('Paste this key into MY CODEX in your own browser. Keep this terminal open.');
+    console.log('Paste this key into MY AI in your own browser. Keep this terminal open.');
     for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => {
       bridge.close().finally(() => process.exit(0));
       setTimeout(() => process.exit(0), 3_000).unref();

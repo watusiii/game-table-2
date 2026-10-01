@@ -166,7 +166,7 @@ test('paired client sends its key only to loopback authorization and stores it i
   client.disconnect();
   assert.equal(client.hasKey(), false);
   assert.equal(storage.size, 0);
-  await assert.rejects(client.ask('Help.', new AbortController().signal), /Connect your local Codex first/);
+  await assert.rejects(client.ask('Help.', new AbortController().signal), /Connect your local AI first/);
   assert.equal(calls.length, 2);
 });
 

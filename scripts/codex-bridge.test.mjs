@@ -179,8 +179,8 @@ test('subprocess output, execution time and cancellation are bounded', async () 
   await assert.rejects(request, /canceled/);
 });
 
-test('origin overrides are exact HTTP origins', () => {
-  assert.deepEqual([...allowedOrigins('https://room.example, http://localhost:9000')], ['https://room.example', 'http://localhost:9000']);
+test('extra origins are exact HTTP origins and keep the local defaults', () => {
+  assert.deepEqual([...allowedOrigins('https://room.example, http://localhost:9000')], [...allowedOrigins(''), 'https://room.example', 'http://localhost:9000']);
   assert.throws(() => allowedOrigins('https://room.example/path'));
   assert.throws(() => allowedOrigins('file:///tmp'));
 });

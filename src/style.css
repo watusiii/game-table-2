@@ -641,9 +641,13 @@ select {
   position: absolute;
   top: 0;
   left: 0;
-  transition: transform 60ms linear;
+  transition: transform 60ms linear, opacity 200ms, filter 200ms;
 }
 
+.cursor.away {
+  opacity: 0.35;
+  filter: blur(1.5px);
+}
 .cursor-arrow {
   position: relative;
   display: block;

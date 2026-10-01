@@ -63,13 +63,15 @@ If you already use OpenAI Codex CLI with your ChatGPT sign-in, the room can send
 
 1. Run `codex login` if your CLI is not signed in with ChatGPT yet.
 2. Start `npm run bridge` in a second terminal. For local development, `npm run dev:codex` starts the app and the bridge together instead.
-3. In the room sidebar, open **MY CODEX → CONNECT MY CODEX**, paste the pairing key printed in your terminal, and click **CONNECT**.
-4. Type a prompt and click **ASK CODEX**, or use **ASK CODEX** under a message already in the channel. Selecting part of your draft asks about that text.
+3. In the room sidebar, open **MY AI → CONNECT MY AI**, paste the pairing key printed in your terminal, and click **CONNECT**.
+4. Type a prompt and click **ASK MY AI**, or use **ASK MY AI** under a message already in the channel. Selecting part of your draft asks about that text.
 5. Choose the reply destination. **Insert at chat cursor** puts the reply at the text cursor you had when you asked, preserving the rest of your draft and following edits made while Codex works. Click **SEND** to share that draft; it is labeled as AI. **Post to chat automatically** sends the response directly to the original channel, labeled **AI · Your Name**.
 
 Codex receives your prompt and up to 24 recent messages from that channel. It runs in a temporary read-only workspace for each request, with execution and external tool integrations disabled. It cannot edit your local project or the room's files through this chat connection. Replies go into the **chat input**, not the shared file editor.
 
 Compatible personal model and response preferences are reused. Model names that are available only in the desktop app fall back to the CLI's own defaults. This integration was verified with Codex CLI 0.155.1.
+
+ASK MY AI sends your prompt and the last 24 messages of the channel to your own AI. Nobody else in the room is told when you do.
 
 The pairing key stays in your browser tab and goes only to the local bridge at `http://127.0.0.1:43198`. Your CLI credentials stay on your computer. The bridge must remain running; restarting it creates a new key, so connect again. You can cancel an in-progress request. Cursor replies are kept for recovery if you change rooms or channels before they arrive. Automatic chat replies still go to the original channel. When a reply cannot be delivered because you left, disconnected, or lost permissions, the UI keeps it for copying, posting to its original channel, or discarding.
 

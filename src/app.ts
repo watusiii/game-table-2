@@ -73,7 +73,7 @@ const room = new RoomClient();
 const codex = new CodexClient();
 let codexReady = false;
 let codexConnecting = false;
-let codexNote = codex.hasKey() ? 'Reconnect to your local Codex.' : 'Connect your local Codex to ask from chat.';
+let codexNote = codex.hasKey() ? 'Reconnect your local AI.' : 'Connect your own AI to ask from chat.';
 let codexRun: AbortController | null = null;
 let draftIsAi = false;
 let pendingReply: { answer: string; roomId: string; channelId: string } | null = null;
@@ -374,7 +374,7 @@ function buildRoom(root: HTMLDivElement, snapshot: RoomSnapshot): RoomUi {
   input.placeholder = 'Say something. Enter sends, Shift+Enter adds a line.';
   const sendButton = el('button', '', 'SEND');
   sendButton.type = 'submit';
-  const askCodexButton = button('ASK CODEX', () => {
+  const askCodexButton = button('ASK MY AI', () => {
     const selected = input.value.slice(input.selectionStart, input.selectionEnd);
     void askLocalCodex(selected.trim() || input.value.trim(), true);
   });
@@ -402,8 +402,8 @@ function buildRoom(root: HTMLDivElement, snapshot: RoomSnapshot): RoomUi {
   const codexStatus = el('p', 'codex-status');
   codexStatus.setAttribute('role', 'status');
   const codexSetup = el('details');
-  codexSetup.append(el('summary', '', 'CONNECT MY CODEX'));
-  codexSetup.append(el('p', 'muted', 'Start npm run bridge on your computer, then paste its pairing key here.'));
+  codexSetup.append(el('summary', '', 'CONNECT MY AI'));
+  codexSetup.append(el('p', 'muted', 'Start npm run bridge on your computer, then paste its pairing key here. Friends on a share link: run the bridge with GAME_TABLE_ORIGINS set to that link (see the README).'));
   const codexForm = el('form', 'codex-connect');
   const codexKey = textInput('Pairing key', '', 128);
   codexKey.type = 'password';
@@ -417,16 +417,16 @@ function buildRoom(root: HTMLDivElement, snapshot: RoomSnapshot): RoomUi {
     if (codexConnecting || codexRun) return;
     codexConnecting = true;
     codexReady = false;
-    codexNote = 'Connecting to your local Codex…';
+    codexNote = 'Connecting to your local AI…';
     refreshCodex();
     try {
       await codex.connect(codexKey.value);
       codexKey.value = '';
       codexReady = true;
-      codexNote = 'CODEX CONNECTED · using your ChatGPT sign-in';
+      codexNote = 'AI CONNECTED · running on your computer';
       codexSetup.open = false;
     } catch (error) {
-      codexNote = error instanceof Error ? error.message : 'Could not connect to Codex.';
+      codexNote = error instanceof Error ? error.message : 'Could not connect to your AI.';
     } finally {
       codexConnecting = false;
       refreshCodex();
@@ -434,7 +434,7 @@ function buildRoom(root: HTMLDivElement, snapshot: RoomSnapshot): RoomUi {
   });
   codexSetup.append(codexForm);
   const codexPlacement = el('select');
-  codexPlacement.setAttribute('aria-label', 'Codex reply destination');
+  codexPlacement.setAttribute('aria-label', 'AI reply destination');
   for (const [value, text] of [['cursor', 'Insert at chat cursor'], ['channel', 'Post to chat automatically']]) {
     const option = el('option', '', text);
     option.value = value;
@@ -444,7 +444,7 @@ function buildRoom(root: HTMLDivElement, snapshot: RoomSnapshot): RoomUi {
     codexRun?.abort();
     codex.disconnect();
     codexReady = false;
-    codexNote = 'Codex disconnected.';
+    codexNote = 'AI disconnected.';
     refreshCodex();
   });
   const codexCancel = button('CANCEL', () => codexRun?.abort());
@@ -454,12 +454,12 @@ function buildRoom(root: HTMLDivElement, snapshot: RoomSnapshot): RoomUi {
   const codexReply = el('textarea');
   codexReply.readOnly = true;
   codexReply.rows = 5;
-  codexReply.setAttribute('aria-label', 'Recovered Codex reply');
+  codexReply.setAttribute('aria-label', 'Recovered AI reply');
   const codexPost = button('POST REPLY', () => {
     if (pendingReply && pendingReply.roomId === current.roomId && can('chat') &&
         room.sendMessage(pendingReply.answer, pendingReply.channelId, 'ai')) {
       pendingReply = null;
-      codexNote = 'Codex reply posted.';
+      codexNote = 'AI reply posted.';
       refreshCodex();
     }
   });
@@ -476,11 +476,11 @@ function buildRoom(root: HTMLDivElement, snapshot: RoomSnapshot): RoomUi {
   });
   const codexDiscard = button('DISCARD REPLY', () => {
     pendingReply = null;
-    codexNote = codexReady ? 'CODEX CONNECTED' : 'Connect your local Codex to ask from chat.';
+    codexNote = codexReady ? 'AI CONNECTED' : 'Connect your own AI to ask from chat.';
     refreshCodex();
   });
   codexReplyBox.append(el('p', '', 'Your reply is ready. Copy it, or return to its room to send it.'), codexReply, codexPost, codexInsert, codexDiscard);
-  codexPanel.append(el('h3', '', 'MY CODEX'), codexStatus, codexSetup, field('Reply destination', codexPlacement), codexControls, codexReplyBox);
+  codexPanel.append(el('h3', '', 'MY AI'), codexStatus, el('p', 'muted', 'ASK MY AI sends your prompt and the last 24 messages of this channel to your own AI. Nobody else in the room is told when you do.'), codexSetup, field('Reply destination', codexPlacement), codexControls, codexReplyBox);
   side.append(codexPanel);
   const filePane = el('div', 'file-pane');
   const fileTitle = el('header', 'bar');
@@ -712,6 +712,8 @@ function updateRoom(view: RoomUi, snapshot: RoomSnapshot): void {
     room.setLocation(where);
   }
 
+  refreshCursorAway();
+
   const canSend = snapshot.status === 'online' && Boolean(activeChannelId) && can('chat');
   view.input.disabled = !canSend;
   view.sendButton.disabled = !canSend;
@@ -756,7 +758,7 @@ async function askLocalCodex(request: string, fromComposer = false): Promise<voi
     prompt = codexPrompt(request, current.roomName, channel.name, current.messages.filter((message) => message.channelId === channelId));
   } catch (error) {
     anchor?.dispose();
-    showToast(view, error instanceof Error ? error.message : 'Could not prepare the Codex request.');
+    showToast(view, error instanceof Error ? error.message : 'Could not prepare the AI request.');
     return;
   }
   if (fromComposer && placement === 'channel') {
@@ -769,7 +771,7 @@ async function askLocalCodex(request: string, fromComposer = false): Promise<voi
   }
   const controller = new AbortController();
   codexRun = controller;
-  codexNote = 'Codex is thinking… You can keep chatting.';
+  codexNote = 'Your AI is thinking… You can keep chatting.';
   refreshCodex();
   try {
     const answer = await codex.ask(prompt, AbortSignal.any([controller.signal, AbortSignal.timeout(125_000)]));
@@ -780,13 +782,13 @@ async function askLocalCodex(request: string, fromComposer = false): Promise<voi
       codexNote = 'Reply inserted at your chat cursor. SEND shares it with the room.';
       if (!showFile && activeChannelId === channelId) view.input.focus();
     } else if (sameRoom && can('chat') && placement === 'channel' && room.sendMessage(answer, channelId, 'ai')) {
-      codexNote = 'Codex replied in #' + channel.name + '.';
+      codexNote = 'Your AI replied in #' + channel.name + '.';
     } else {
       pendingReply = { answer, roomId, channelId };
       codexNote = 'Reply saved here. Return to its room or reconnect to send it.';
     }
   } catch (error) {
-    codexNote = error instanceof Error ? error.message : 'Codex could not finish. Your draft is still here.';
+    codexNote = error instanceof Error ? error.message : 'Your AI could not finish. Your draft is still here.';
   } finally {
     anchor?.dispose();
     codexRun = null;
@@ -1117,7 +1119,7 @@ function renderMessage(message: ChatMessage): HTMLElement {
   );
   row.append(head, el('div', 'msg-text', message.text));
   if (message.kind === 'chat') {
-    const ask = button('ASK CODEX', () => { void askLocalCodex(message.text); });
+    const ask = button('ASK MY AI', () => { void askLocalCodex(message.text); });
     ask.classList.add('ask-message');
     row.append(ask);
   }
@@ -1221,6 +1223,18 @@ function pruneCursors(snapshot: RoomSnapshot): void {
   });
 }
 
+// A cursor from someone looking at a different channel or file means nothing where you are, so it is shown faded.
+function isAway(member: RoomMember): boolean {
+  return Boolean(announcedWhere && member.where && member.where !== announcedWhere);
+}
+
+function refreshCursorAway(): void {
+  cursorEls.forEach((entry, id) => {
+    const member = current.members.find((candidate) => candidate.id === id);
+    if (member) entry.element.classList.toggle('away', isAway(member));
+  });
+}
+
 function showCursor(id: string, x: number, y: number): void {
   if (!ui || id === current.myId) return;
   if (x < 0 || y < 0) {
@@ -1238,6 +1252,7 @@ function showCursor(id: string, x: number, y: number): void {
     entry = { element, timer: 0 };
     cursorEls.set(id, entry);
   }
+  entry.element.classList.toggle('away', isAway(member));
   entry.element.style.transform = 'translate(' + x * window.innerWidth + 'px, ' + y * window.innerHeight + 'px)';
   window.clearTimeout(entry.timer);
   entry.timer = window.setTimeout(() => removeCursor(id), 4_000);
