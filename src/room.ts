@@ -248,6 +248,22 @@ export class RoomClient {
     }
   }
 
+  // Pick your own color. Saved for next time, and everyone in the room sees it change.
+  static saveColor(color: string): void {
+    try {
+      if (COLOR_PATTERN.test(color)) localStorage.setItem(COLOR_STORAGE, color);
+    } catch {
+      // A convenience only.
+    }
+  }
+
+  setColor(color: string): void {
+    if (!COLOR_PATTERN.test(color)) return;
+    RoomClient.saveColor(color);
+    this.identity = { ...this.identity, color };
+    this.send({ type: 'profile:color', color });
+  }
+
   static savedRoom(): SavedRoom | null {
     return readSavedRoom();
   }

@@ -928,6 +928,8 @@ function dot(color: string): HTMLSpanElement {
 
 function renderMembers(view: RoomUi, snapshot: RoomSnapshot): void {
   view.membersTitle.textContent = 'MEMBERS (' + snapshot.members.length + ')';
+  // Don't rebuild the list while someone is dragging their color slider. The next update catches up.
+  if (document.activeElement?.classList.contains('hue-slider')) return;
   // Rebuilding while someone is choosing a role would close their menu, so only rebuild when something changed.
   const key = JSON.stringify([snapshot.members, snapshot.myId, snapshot.myRole, snapshot.channels.map((c) => c.id + c.name)]);
   if (key === renderedMembersKey) return;
@@ -946,7 +948,28 @@ function renderMembers(view: RoomUi, snapshot: RoomSnapshot): void {
       info.append(el('span', '', member.name + (tags ? ' [' + tags + ']' : '')));
       const place = whereLabel(snapshot, member.where ?? '');
       if (place) info.append(el('small', 'muted', place));
-      row.append(dot(member.color), info);
+      const swatch = dot(member.color);
+      row.append(swatch, info);
+
+      // Your own color: slide the hue. Saturation and lightness stay fixed so every color reads well behind text.
+      if (member.id === snapshot.myId) {
+        const hue = Number(/^hsl\((\d{1,3})/.exec(member.color)?.[1] ?? 0);
+        const slider = el('input', 'hue-slider');
+        slider.type = 'range';
+        slider.min = '0';
+        slider.max = '359';
+        slider.value = String(hue);
+        slider.title = 'Pick your color';
+        const colorAt = (value: string) => 'hsl(' + value + ' 65% 62%)';
+        // Send a moment after each move. The member list can rebuild mid-drag, which would kill a 'change' event.
+        let sendTimer: number | undefined;
+        slider.addEventListener('input', () => {
+          swatch.style.setProperty('--c', colorAt(slider.value));
+          window.clearTimeout(sendTimer);
+          sendTimer = window.setTimeout(() => room.setColor(colorAt(slider.value)), 150);
+        });
+        info.append(slider);
+      }
 
       // Owner and admins can change roles and remove people below them.
       const mine = snapshot.myRole;

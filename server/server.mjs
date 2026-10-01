@@ -120,6 +120,26 @@ function broadcast(room, packet, exceptId) {
   });
 }
 
+// Two people arriving with the same (or nearly the same) color get nudged apart, so you can tell them apart.
+function distinctColor(room, color, selfId) {
+  const match = /^hsl\((\d{1,3}) (\d{1,3})% (\d{1,3})%\)$/.exec(color);
+  if (!match) return color;
+  const taken = Object.entries(room.people)
+    .filter(([id, person]) => id !== selfId && person.color)
+    .map(([, person]) => /^hsl\((\d{1,3})/.exec(person.color)?.[1])
+    .filter((hue) => hue !== undefined)
+    .map(Number);
+  const close = (hue) => taken.some((other) => Math.min(Math.abs(other - hue), 360 - Math.abs(other - hue)) < 24);
+  let hue = Number(match[1]) % 360;
+  if (!close(hue)) return color;
+  // Try hues spread around the wheel and take the first one nobody is near.
+  for (let step = 1; step <= 15; step++) {
+    const candidate = (hue + step * 24) % 360;
+    if (!close(candidate)) return 'hsl(' + candidate + ' ' + match[2] + '% ' + match[3] + '%)';
+  }
+  return color;
+}
+
 function actorOf(room, id) {
   const person = room.people[id];
   return { id, name: person?.name ?? 'Someone', color: person?.color ?? FALLBACK_COLOR };
@@ -213,6 +233,7 @@ const LIMITS = {
   deletes: [5, 60_000],
   bulk: [3, 60_000],
   roles: [20, 60_000],
+  color: [40, 10_000],
 };
 const hits = new Map();
 
@@ -575,9 +596,29 @@ function attach(ws, room, id, name, color, announce, agent = false) {
   }
 
   const isNew = !room.people[id];
-  room.people[id] = { name, color, joinedAt: room.people[id]?.joinedAt ?? new Date().toISOString(), ip: ws.ip ?? '', agent };
-  // Optionally, people arriving for the first time start as viewers until the owner or an admin lets them in.
-  if (isNew && room.settings.newPeopleStartAsViewers && id !== room.ownerId) room.roles[id] = 'viewer';
+  const existing = room.people[id];
+  // Returning people keep the color they chose; new arrivals are nudged away from colors already in use.
+  if (isNew) color = distinctColor(room, color, id);
+  room.people[id] = {
+    name,
+    color: isNew ? color : existing.colorChosen ? existing.color : distinctColor(room, color, id),
+    colorChosen: existing?.colorChosen ?? false,
+    roleSet: existing?.roleSet ?? false,
+    joinedAt: existing?.joinedAt ?? new Date().toISOString(),
+    ip: ws.ip ?? '',
+    agent,
+  };
+  // Optionally, new people start as viewers until the owner or an admin lets them in.
+  // AI helpers get this every time they join until someone has explicitly set their role.
+  if (
+    room.settings.newPeopleStartAsViewers &&
+    id !== room.ownerId &&
+    !room.people[id].roleSet &&
+    (isNew || agent) &&
+    !room.roles[id]
+  ) {
+    room.roles[id] = 'viewer';
+  }
   if (previous && previous !== ws) {
     previous.ctx = null;
     sendError(previous, 'This room was opened somewhere else (another tab or window), so this one stopped.', 'replaced');
@@ -743,6 +784,7 @@ function handle(ws, msg) {
       notice(ws, 'Only the owner can change admins.');
       return;
     }
+    room.people[target].roleSet = true;
     if (msg.role === 'member') delete room.roles[target];
     else room.roles[target] = msg.role;
     addSystemMessage(room, actorOf(room, ctx.id).name + ' set ' + room.people[target].name + ' to ' + msg.role + '.');
@@ -821,6 +863,17 @@ function handle(ws, msg) {
       { type: 'cursor', id: ctx.id, x: hidden ? -1 : clamp(msg.x), y: hidden ? -1 : clamp(msg.y) },
       ctx.id,
     );
+    return;
+  }
+
+  // Anyone can pick their own color.
+  if (msg.type === 'profile:color') {
+    if (typeof msg.color !== 'string' || !COLOR_PATTERN.test(msg.color)) return;
+    if (!withinLimit(room, ctx.id, 'color')) return;
+    room.people[ctx.id].color = msg.color;
+    room.people[ctx.id].colorChosen = true;
+    broadcast(room, { type: 'members', members: membersOf(room) });
+    scheduleSave();
     return;
   }
 
