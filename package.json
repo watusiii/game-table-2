@@ -5,6 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "node scripts/dev.mjs",
+    "dev:codex": "node scripts/dev.mjs --codex",
+    "bridge": "node scripts/codex-bridge.mjs",
+    "test:bridge": "node --test scripts/codex-bridge.test.mjs",
+    "test:codex": "node --test scripts/codex-*.test.mjs",
     "dev:client": "vite",
     "share": "vite build && node scripts/dev.mjs --preview",
     "server": "node server/server.mjs",
