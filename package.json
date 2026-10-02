@@ -10,7 +10,8 @@
     "server": "node server/server.mjs",
     "table": "node cli/table.mjs",
     "build": "vite build",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "check": "node scripts/check.mjs"
   },
   "dependencies": {
     "ws": "^8.18.0",
