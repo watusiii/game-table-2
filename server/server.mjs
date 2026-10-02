@@ -8,6 +8,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRepo } from './repo.mjs';
+import { CommandError, commandsFor, isSlash, runCommand } from './commands.mjs';
 
 const PORT = Number(process.env.PORT) || 8787;
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
@@ -153,12 +154,13 @@ const PERMISSIONS = {
   owner: [
     'chat', 'channels:create', 'channels:manage', 'files:edit', 'files:create', 'files:delete', 'files:restore',
     'files:restore-all', 'members:manage', 'members:kick', 'invite:reset', 'settings', 'repo',
+    'github:read', 'github:write', 'github:merge',
   ],
   admin: [
     'chat', 'channels:create', 'channels:manage', 'files:edit', 'files:create', 'files:delete', 'files:restore',
-    'files:restore-all', 'members:manage', 'members:kick',
+    'files:restore-all', 'members:manage', 'members:kick', 'github:read', 'github:write',
   ],
-  member: ['chat', 'files:edit', 'files:create', 'files:restore'],
+  member: ['chat', 'files:edit', 'files:create', 'files:restore', 'github:read', 'github:write'],
   viewer: [],
 };
 
@@ -172,7 +174,7 @@ function roleOf(room, id) {
 // but never delete, run the room, or change settings.
 const AGENT_BLOCKED = [
   'files:delete', 'channels:create', 'channels:manage', 'members:manage', 'members:kick',
-  'invite:reset', 'settings', 'repo', 'files:restore-all',
+  'invite:reset', 'settings', 'repo', 'files:restore-all', 'github:merge',
 ];
 
 function permissionsOf(room, id) {
@@ -212,7 +214,8 @@ function broadcastBans(room) {
 }
 
 function sendPerms(ws, room, id) {
-  send(ws, { type: 'perms', role: roleOf(room, id), can: permissionsOf(room, id), settings: room.settings });
+  const allowed = (action) => can(room, id, action);
+  send(ws, { type: 'perms', role: roleOf(room, id), can: permissionsOf(room, id), settings: room.settings, commands: commandsFor(allowed) });
 }
 
 // Roles or settings changed: tell everyone what they can now do, and refresh the member list.
@@ -234,6 +237,8 @@ const LIMITS = {
   bulk: [3, 60_000],
   roles: [20, 60_000],
   color: [40, 10_000],
+  slash: [10, 60_000],
+  ghwrite: [4, 60_000],
 };
 const hits = new Map();
 
@@ -529,6 +534,48 @@ function addMessage(room, message) {
   scheduleSave();
 }
 
+let rulesText = 'No rules file found.';
+try {
+  rulesText = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'AGENTS.md'), 'utf8').trim().slice(0, 6_000);
+} catch {
+  // Running without the repo's AGENTS.md; /rules says so.
+}
+
+// Runs a typed /command. The answer goes in the channel for everyone; problems go only to the person.
+async function runSlash(ws, room, id, channelId, text) {
+  if (!withinLimit(room, id, 'slash')) {
+    notice(ws, 'Slow down a little. You are doing that too fast.');
+    return;
+  }
+  const by = actorOf(room, id).name;
+  try {
+    const reply = await runCommand(text, {
+      allowed: (action) => can(room, id, action),
+      spend: () => {
+        if (!withinLimit(room, id, 'ghwrite')) throw new CommandError('Slow down a little. GitHub changes are limited.');
+      },
+      repo: repoFor(room),
+      web: room.repoUrl ? webUrlOf(room.repoUrl) : '',
+      rules: rulesText,
+      by,
+    });
+    if (!room.channels.some((channel) => channel.id === channelId)) return;
+    addMessage(room, {
+      id: randomUUID(),
+      channelId,
+      authorId: 'system',
+      authorName: 'ROOM',
+      authorColor: '',
+      kind: 'system',
+      text: by + ' ran ' + text.slice(0, 80) + '\n' + String(reply).slice(0, 3_000),
+      createdAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    notice(ws, error instanceof CommandError ? error.message : 'That command failed.');
+    if (!(error instanceof CommandError)) console.error('[command] ' + text.slice(0, 40) + ': ' + error.message);
+  }
+}
+
 function addSystemMessage(room, text) {
   addMessage(room, {
     id: randomUUID(),
@@ -637,6 +684,7 @@ function attach(ws, room, id, name, color, announce, agent = false) {
     youId: id,
     role: roleOf(room, id),
     can: permissionsOf(room, id),
+    commands: commandsFor((action) => can(room, id, action)),
     settings: room.settings,
     channels: room.channels,
     messages: room.messages,
@@ -720,6 +768,11 @@ function handle(ws, msg) {
     if (!text || text.length > (kind === 'ai' ? MAX_AI_CHARS : MAX_CHAT_CHARS)) return;
     if (!room.channels.some((channel) => channel.id === msg.channelId)) return;
     const person = room.people[ctx.id];
+    // /commands run on the server. A person's drafted AI reply that starts with / is just text.
+    if (isSlash(text) && (msg.kind !== 'ai' || person.agent)) {
+      void runSlash(ws, room, ctx.id, msg.channelId, text);
+      return;
+    }
     addMessage(room, {
       id: randomUUID(),
       channelId: msg.channelId,

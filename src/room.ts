@@ -12,6 +12,7 @@ import type {
   RoomSnapshot,
   Role,
   RoomSettings,
+  SlashCommand,
   SavedRoom,
   TrashItem,
 } from './types';
@@ -175,6 +176,15 @@ function parseCan(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
 }
 
+function parseCommands(value: unknown): SlashCommand[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) =>
+    isRecord(item) && typeof item.name === 'string' && typeof item.args === 'string' && typeof item.help === 'string'
+      ? [{ name: item.name, args: item.args, help: item.help }]
+      : [],
+  );
+}
+
 function emptySnapshot(): RoomSnapshot {
   return {
     role: null,
@@ -197,6 +207,7 @@ function emptySnapshot(): RoomSnapshot {
     trash: [],
     myRole: 'member',
     can: [],
+    commands: [],
     settings: { membersCanCreateChannels: false, membersCanDeleteFiles: false, newPeopleStartAsViewers: false },
     bans: [],
     noticeSeq: 0,
@@ -613,6 +624,7 @@ export class RoomClient {
         members: value.members as RoomMember[],
         myRole: parseRole(value.role),
         can: parseCan(value.can),
+        commands: parseCommands(value.commands),
         settings: parseSettings(value.settings),
       });
       // After a reconnect, ask for the open file again so nothing is missed.
@@ -654,7 +666,7 @@ export class RoomClient {
     }
 
     if (value.type === 'perms') {
-      this.patch({ myRole: parseRole(value.role), can: parseCan(value.can), settings: parseSettings(value.settings) });
+      this.patch({ myRole: parseRole(value.role), can: parseCan(value.can), commands: parseCommands(value.commands), settings: parseSettings(value.settings) });
       return;
     }
 

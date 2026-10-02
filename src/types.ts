@@ -5,6 +5,12 @@ export type MessageKind = 'chat' | 'ai' | 'system';
 // Owner made the room. Admins help run it. Members work. Viewers can only watch.
 export type Role = 'owner' | 'admin' | 'member' | 'viewer';
 
+export interface SlashCommand {
+  name: string;
+  args: string;
+  help: string;
+}
+
 export interface RoomSettings {
   membersCanCreateChannels: boolean;
   membersCanDeleteFiles: boolean;
@@ -118,6 +124,7 @@ export interface RoomSnapshot {
   trash: TrashItem[];
   myRole: Role;
   can: string[];
+  commands: SlashCommand[];
   settings: RoomSettings;
   bans: BanEntry[];
   noticeSeq: number;

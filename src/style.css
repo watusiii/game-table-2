@@ -138,9 +138,68 @@ textarea {
 /* Room */
 
 .app {
+  position: relative;
   display: grid;
-  grid-template-columns: 240px 1fr 200px;
+  grid-template-columns: var(--side-w, 240px) minmax(0, 1fr) var(--members-w, 200px);
   height: 100%;
+}
+
+.app.no-side .side,
+.app.no-members .members {
+  display: none;
+}
+
+.resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 5;
+  width: 10px;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.resizer-side {
+  left: calc(var(--side-w, 240px) - 5px);
+}
+
+.resizer-members {
+  right: calc(var(--members-w, 200px) - 5px);
+}
+
+.stage .resizer-preview {
+  right: calc(var(--preview-w, 400px) - 5px);
+}
+
+.preview-pane[hidden] ~ .resizer-preview {
+  display: none;
+}
+
+.preview-pane[hidden] {
+  width: 0;
+}
+
+.app.no-side .resizer-side {
+  left: 0;
+}
+
+.app.no-members .resizer-members {
+  right: 0;
+}
+
+.resizer:hover {
+  background: rgba(128, 128, 128, 0.25);
+}
+
+.panel-toggle {
+  margin-top: 56px;
+  padding: 0 3px;
+  font-size: 14px;
+  line-height: 1.2;
+  text-transform: none;
 }
 
 .side,
@@ -257,6 +316,7 @@ textarea {
 }
 
 .stage {
+  position: relative;
   display: flex;
   min-width: 0;
   min-height: 0;
@@ -307,6 +367,8 @@ textarea {
 
 .msg.system {
   align-self: center;
+  white-space: pre-wrap;
+  text-align: center;
   border: 0;
   background: none;
   opacity: 0.55;
@@ -357,7 +419,31 @@ textarea {
 
 .composer {
   display: flex;
+  position: relative;
   border-top: var(--line);
+}
+
+.slash-menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  display: flex;
+  flex-direction: column;
+  max-height: 40vh;
+  overflow-y: auto;
+  background: var(--bg);
+  border: var(--line);
+}
+
+.slash-row {
+  text-align: left;
+  border: 0;
+  padding: 6px 10px;
+}
+
+.slash-row:hover {
+  background: rgba(128, 128, 128, 0.2);
 }
 
 .composer textarea {
@@ -567,8 +653,9 @@ select {
 
 .preview-pane {
   display: flex;
-  flex: 1;
   flex-direction: column;
+  width: var(--preview-w, 400px);
+  flex-shrink: 0;
   min-width: 0;
   min-height: 0;
   border-left: var(--line);
@@ -654,6 +741,14 @@ select {
 }
 
 @media (max-width: 800px) {
+  .resizer {
+    display: none;
+  }
+
+  .app.no-side .side {
+    display: flex;
+  }
+
   .app {
     grid-template-columns: 1fr;
     grid-template-rows: auto 1fr;
@@ -682,4 +777,64 @@ select {
   background: linear-gradient(to right, hsl(0 65% 62%), hsl(60 65% 62%), hsl(120 65% 62%), hsl(180 65% 62%), hsl(240 65% 62%), hsl(300 65% 62%), hsl(359 65% 62%));
   height: 10px;
   border: 2px solid currentColor;
+}
+
+.tree {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  overflow-x: auto;
+  padding: 4px 8px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.tree-row {
+  display: flex;
+  align-items: baseline;
+  white-space: nowrap;
+}
+
+.tree-prefix {
+  white-space: pre;
+  opacity: 0.4;
+}
+
+.tree-root {
+  opacity: 0.55;
+}
+
+.tree-name,
+.tree-x {
+  border: 0;
+  background: none;
+  padding: 0 4px;
+  text-transform: none;
+  font-size: inherit;
+  line-height: inherit;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.tree-name:hover,
+.tree-name.active {
+  background: var(--ink);
+  color: var(--bg);
+}
+
+.tree-x {
+  margin-left: auto;
+  opacity: 0;
+}
+
+.tree-row:hover .tree-x {
+  opacity: 0.6;
+}
+
+.tree-x:hover {
+  opacity: 1;
+  background: none;
+  color: inherit;
 }

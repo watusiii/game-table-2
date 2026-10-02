@@ -761,7 +761,46 @@ export function createRepo({ url, branch = '', dir, onStatus: reportStatus, onUp
     }
   }
 
+  // Read-only looks at the repo for the /commands. A fixed list, never a free-form git command.
+  async function look(kind, count = 8) {
+    flushDirty();
+    const base = baseBranch ? 'origin/' + baseBranch : '';
+    if (kind === 'status') {
+      const changed = (await git(repoDir, ['status', '--porcelain'])).split('\n').filter(Boolean).length;
+      let behind = '?';
+      let ahead = '?';
+      if (base) [behind, ahead] = (await git(repoDir, ['rev-list', '--left-right', '--count', base + '...HEAD'])).split(/\s+/);
+      return { branch: currentBranch, base: baseBranch, changed, ahead, behind };
+    }
+    if (kind === 'log') return git(repoDir, ['log', '-n', String(count), '--pretty=%h %s (%an, %ar)']);
+    if (kind === 'diff') return base ? git(repoDir, ['diff', '--stat', base + '...HEAD']) : '';
+    return '';
+  }
+
+  // Merge the base branch into the room branch. A conflict is backed out and left for GitHub.
+  function updateFromBase() {
+    return enqueue(async () => {
+      if (!ready || !baseBranch || !currentBranch || currentBranch === baseBranch) throw new Error('This room has no branch of its own to update yet.');
+      flushDirty();
+      await save();
+      await git(repoDir, ['fetch', 'origin']);
+      const behind = Number(await git(repoDir, ['rev-list', '--count', 'HEAD..origin/' + baseBranch]));
+      if (!behind) return 'Already up to date with ' + baseBranch + '.';
+      try {
+        await git(repoDir, ['merge', '--no-edit', 'origin/' + baseBranch]);
+      } catch {
+        await git(repoDir, ['merge', '--abort']).catch(() => {});
+        throw new Error('Could not merge ' + baseBranch + ' (conflict or unsaved changes). Nothing was changed. Sort it out on GitHub.');
+      }
+      await push();
+      refreshFromDisk();
+      return 'Pulled ' + behind + ' new commit(s) from ' + baseBranch + '.';
+    });
+  }
+
   return {
+    look,
+    updateFromBase,
     init,
     list,
     open,

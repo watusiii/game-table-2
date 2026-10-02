@@ -2,7 +2,7 @@ import { CaretLayer } from './carets';
 import type { DrawnCaret } from './carets';
 import type { FileSession } from './collab';
 import { cleanColor, inviteFromLocation, parseRepoInput, RoomClient } from './room';
-import type { Channel, ChatMessage, FileVersion, GitState, Role, RoomMember, RoomSettings, RoomSnapshot } from './types';
+import type { Channel, ChatMessage, FileVersion, GitState, Role, RoomMember, RoomSettings, RoomSnapshot, SlashCommand } from './types';
 
 interface RoomUi {
   roomName: HTMLElement;
@@ -220,6 +220,86 @@ function renderGate(root: HTMLDivElement, snapshot: RoomSnapshot): void {
 
 /* ---------- Room: channels | messages | members ---------- */
 
+// Drag the edge of a side panel to size it, drag it nearly shut (or double-click, or press the arrow) to fold it away.
+// Sizes are remembered in this browser.
+const PANEL_MIN = 140;
+const PANEL_MAX = 560;
+const PANEL_DEFAULT = { side: 240, members: 200 };
+
+function addPanelResizers(app: HTMLElement, stage: HTMLElement): void {
+  const clamp = (value: number): number => Math.min(Math.max(value, PANEL_MIN), PANEL_MAX);
+
+  // Sidebar resizers
+  (['side', 'members'] as const).forEach((name) => {
+    const left = name === 'side';
+    let width = PANEL_DEFAULT[name];
+    let closed = false;
+    const handle = el('div', 'resizer resizer-' + name);
+    const toggle = button('', () => {
+      closed = !closed;
+      apply();
+    });
+    toggle.classList.add('panel-toggle');
+    handle.append(toggle);
+    const apply = (): void => {
+      app.style.setProperty('--' + name + '-w', closed ? '0px' : width + 'px');
+      app.classList.toggle('no-' + name, closed);
+      toggle.textContent = left !== closed ? '\u2039' : '\u203a';
+      toggle.title = closed ? 'Show panel' : 'Hide panel';
+    };
+    handle.addEventListener('pointerdown', (event) => {
+      if (event.target === toggle) return;
+      event.preventDefault();
+      handle.setPointerCapture(event.pointerId);
+      const move = (moved: PointerEvent): void => {
+        const box = app.getBoundingClientRect();
+        const next = left ? moved.clientX - box.left : box.right - moved.clientX;
+        closed = next < 80;
+        if (!closed) width = clamp(next);
+        apply();
+      };
+      const stop = (): void => {
+        handle.removeEventListener('pointermove', move);
+        handle.removeEventListener('pointerup', stop);
+      };
+      handle.addEventListener('pointermove', move);
+      handle.addEventListener('pointerup', stop);
+    });
+    handle.addEventListener('dblclick', (event) => {
+      if (event.target === toggle) return;
+      closed = !closed;
+      apply();
+    });
+    apply();
+    app.append(handle);
+  });
+
+  // Preview pane resizer
+  let previewWidth = 400; // pixels
+  const previewHandle = el('div', 'resizer resizer-preview');
+  const applyPreview = (): void => {
+    stage.style.setProperty('--preview-w', previewWidth + 'px');
+  };
+  previewHandle.addEventListener('pointerdown', (event) => {
+    event.preventDefault();
+    previewHandle.setPointerCapture(event.pointerId);
+    const move = (moved: PointerEvent): void => {
+      const box = stage.getBoundingClientRect();
+      const next = box.right - moved.clientX;
+      previewWidth = Math.min(Math.max(next, 200), 800);
+      applyPreview();
+    };
+    const stop = (): void => {
+      previewHandle.removeEventListener('pointermove', move);
+      previewHandle.removeEventListener('pointerup', stop);
+    };
+    previewHandle.addEventListener('pointermove', move);
+    previewHandle.addEventListener('pointerup', stop);
+  });
+  applyPreview();
+  stage.append(previewHandle);
+}
+
 function buildRoom(root: HTMLDivElement, snapshot: RoomSnapshot): RoomUi {
   root.replaceChildren();
   const app = el('div', 'app');
@@ -351,13 +431,51 @@ function buildRoom(root: HTMLDivElement, snapshot: RoomSnapshot): RoomUi {
   input.placeholder = 'Say something. Enter sends, Shift+Enter adds a line.';
   const sendButton = el('button', '', 'SEND');
   sendButton.type = 'submit';
-  composer.append(input, sendButton);
+  // Typing / shows the commands you can run. Tab or a click fills one in.
+  const slashMenu = el('div', 'slash-menu');
+  slashMenu.hidden = true;
+  const slashMatches = (): SlashCommand[] => {
+    const typed = /^\/([a-z]*)$/i.exec(input.value)?.[1].toLowerCase();
+    return typed === undefined ? [] : current.commands.filter((command) => command.name.startsWith(typed));
+  };
+  const fillCommand = (command: SlashCommand): void => {
+    input.value = '/' + command.name + (command.args ? ' ' : '');
+    slashMenu.hidden = true;
+    input.focus();
+  };
+  const refreshSlashMenu = (): void => {
+    const matches = slashMatches();
+    slashMenu.replaceChildren(
+      ...matches.map((command) => {
+        const row = el('button', 'slash-row', '/' + command.name + (command.args ? ' ' + command.args : '') + ' \u2014 ' + command.help);
+        row.type = 'button';
+        row.addEventListener('mousedown', (event) => {
+          event.preventDefault();
+          fillCommand(command);
+        });
+        return row;
+      }),
+    );
+    slashMenu.hidden = !matches.length;
+  };
+  input.addEventListener('input', refreshSlashMenu);
+  input.addEventListener('blur', () => {
+    slashMenu.hidden = true;
+  });
+  composer.append(slashMenu, input, sendButton);
   composer.addEventListener('submit', (event) => {
     event.preventDefault();
+    slashMenu.hidden = true;
     if (activeChannelId && room.sendMessage(input.value, activeChannelId)) input.value = '';
     input.focus();
   });
   input.addEventListener('keydown', (event) => {
+    if (event.key === 'Tab' && !slashMenu.hidden) {
+      event.preventDefault();
+      const first = slashMatches()[0];
+      if (first) fillCommand(first);
+      return;
+    }
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
       composer.requestSubmit();
@@ -472,6 +590,7 @@ function buildRoom(root: HTMLDivElement, snapshot: RoomSnapshot): RoomUi {
   const stage = el('div', 'stage');
   stage.append(main, previewPane);
   app.append(side, stage, membersSide, cursors, toast);
+  addPanelResizers(app, stage);
   root.append(app);
 
   return {
@@ -748,27 +867,94 @@ function openFileView(path: string): void {
   if (ui) updateRoom(ui, current);
 }
 
+// Folders you have folded away in the file tree. Everything else is shown.
+const closedFolders = new Set<string>();
+
+interface TreeNode {
+  name: string;
+  path: string;
+  folders: TreeNode[];
+  files: string[];
+}
+
+// Turns a flat list of paths into folders and files, folders first, each sorted by name.
+function buildTree(paths: string[]): TreeNode {
+  const root: TreeNode = { name: '', path: '', folders: [], files: [] };
+  const byPath = new Map<string, TreeNode>([['', root]]);
+  [...paths].sort((a, b) => a.localeCompare(b)).forEach((path) => {
+    const parts = path.split('/');
+    let parent = root;
+    for (let depth = 1; depth < parts.length; depth++) {
+      const folderPath = parts.slice(0, depth).join('/');
+      let folder = byPath.get(folderPath);
+      if (!folder) {
+        folder = { name: parts[depth - 1], path: folderPath, folders: [], files: [] };
+        byPath.set(folderPath, folder);
+        parent.folders.push(folder);
+      }
+      parent = folder;
+    }
+    parent.files.push(path);
+  });
+  return root;
+}
+
 function renderFiles(view: RoomUi, snapshot: RoomSnapshot): void {
   const connected = Boolean(snapshot.git.url);
   const isOwner = snapshot.role === 'host';
+  view.fileList.className = 'tree';
   view.fileList.replaceChildren();
-  snapshot.files.forEach((path) => {
-    const row = el('div', 'file-row');
-    const item = button(path, () => openFileView(path));
-    item.classList.add('channel');
-    item.classList.toggle('active', showFile && snapshot.file?.path === path);
-    appendPresence(item, snapshot, 'file:' + path);
-    const remove = button('\u00d7', () => {
-      if (window.confirm('Delete ' + path + '? It is removed from GitHub too, though GitHub keeps its history.')) {
-        room.deleteFile(path);
+  const openPath = snapshot.file?.path ?? '';
+  const rows = document.createDocumentFragment();
+  const tag = (text: string): HTMLElement => el('span', 'tree-prefix', text);
+  // Draws like the `tree` command. Folders open by default; click one to fold it away.
+  const addNode = (node: TreeNode, prefix: string): void => {
+    const entries = [
+      ...node.folders.map((folder) => ({ name: folder.name, folder, path: '' })),
+      ...node.files.map((path) => ({ name: path.slice(path.lastIndexOf('/') + 1), folder: null, path })),
+    ].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    entries.forEach((entry, index) => {
+      const last = index === entries.length - 1;
+      const branch = tag(prefix + (last ? '\u2514\u2500\u2500 ' : '\u251c\u2500\u2500 '));
+      const row = el('div', 'tree-row');
+      if (entry.folder) {
+        const folder = entry.folder;
+        const folded = closedFolders.has(folder.path);
+        const toggle = button(entry.name + (folded ? '/ \u2026' : '/'), () => {
+          if (closedFolders.has(folder.path)) closedFolders.delete(folder.path);
+          else closedFolders.add(folder.path);
+          renderFiles(view, current);
+        });
+        toggle.classList.add('tree-name');
+        toggle.title = folder.path;
+        row.append(branch, toggle);
+        rows.append(row);
+        if (!folded) addNode(folder, prefix + (last ? '    ' : '\u2502   '));
+        return;
       }
+      const path = entry.path;
+      const item = button(entry.name, () => openFileView(path));
+      item.classList.add('tree-name');
+      item.title = path;
+      item.classList.toggle('active', showFile && openPath === path);
+      appendPresence(item, snapshot, 'file:' + path);
+      const remove = button('\u00d7', () => {
+        if (window.confirm('Delete ' + path + '? It is removed from GitHub too, though GitHub keeps its history.')) {
+          room.deleteFile(path);
+        }
+      });
+      remove.classList.add('tree-x');
+      remove.title = 'Delete ' + path;
+      remove.hidden = !can('files:delete');
+      row.append(branch, item, remove);
+      rows.append(row);
     });
-    remove.classList.add('remove');
-    remove.title = 'Delete ' + path;
-    remove.hidden = !can('files:delete');
-    row.append(item, remove);
-    view.fileList.append(row);
-  });
+  };
+  const folderCount = new Set(snapshot.files.flatMap((path) => path.split('/').slice(0, -1).map((_, i, parts) => parts.slice(0, i + 1).join('/')))).size;
+  if (snapshot.files.length) rows.append(el('div', 'tree-root', '.'));
+  addNode(buildTree(snapshot.files), '');
+  if (snapshot.files.length) rows.append(el('div', 'tree-root', folderCount + ' folder' + (folderCount === 1 ? '' : 's') + ', ' + snapshot.files.length + ' file' + (snapshot.files.length === 1 ? '' : 's')));
+  view.fileList.append(rows);
   if (connected && !snapshot.files.length) {
     view.fileList.append(el('div', 'muted', snapshot.git.state === 'opening' ? 'Opening repo\u2026' : 'No files yet.'));
   }
