@@ -57,32 +57,6 @@ Each person can bring their own AI. It runs on their computer with their own key
 
 Friends clone that repo, run `npm install`, and sign in with your invite link. Its README has the setup, the commands, and the safety rules to give an AI.
 
-### Use your own Codex from chat
-
-If you already use OpenAI Codex CLI with your ChatGPT sign-in, the room can send a message to it and bring the reply back. Each person connects the CLI running on their own computer.
-
-1. Run `codex login` if your CLI is not signed in with ChatGPT yet.
-2. Start `npm run bridge` in a second terminal. For local development, `npm run dev:codex` starts the app and the bridge together instead.
-3. In the room sidebar, open **MY AI → CONNECT MY AI**, paste the pairing key printed in your terminal, and click **CONNECT**.
-4. Type a prompt and click **ASK MY AI**, or use **ASK MY AI** under a message already in the channel. Selecting part of your draft asks about that text.
-5. Choose the reply destination. **Insert at chat cursor** puts the reply at the text cursor you had when you asked, preserving the rest of your draft and following edits made while Codex works. Click **SEND** to share that draft; it is labeled as AI. **Post to chat automatically** sends the response directly to the original channel, labeled **AI · Your Name**.
-
-Codex receives your prompt and up to 24 recent messages from that channel. It runs in a temporary read-only workspace for each request, with execution and external tool integrations disabled. It cannot edit your local project or the room's files through this chat connection. Replies go into the **chat input**, not the shared file editor.
-
-Compatible personal model and response preferences are reused. Model names that are available only in the desktop app fall back to the CLI's own defaults. This integration was verified with Codex CLI 0.155.1.
-
-ASK MY AI sends your prompt and the last 24 messages of the channel to your own AI. Nobody else in the room is told when you do.
-
-The pairing key stays in your browser tab and goes only to the local bridge at `http://127.0.0.1:43198`. Your CLI credentials stay on your computer. The bridge must remain running; restarting it creates a new key, so connect again. You can cancel an in-progress request. Cursor replies are kept for recovery if you change rooms or channels before they arrive. Automatic chat replies still go to the original channel. When a reply cannot be delivered because you left, disconnected, or lost permissions, the UI keeps it for copying, posting to its original channel, or discarding.
-
-For a room opened through a tunnel, start the bridge with that exact page origin allowed:
-
-```bash
-GAME_TABLE_ORIGINS=https://your-room.trycloudflare.com npm run bridge
-```
-
-When prompted by your browser, allow the room page to access your local network. The room server and tunnel do not carry the pairing key or launch your CLI.
-
 ---
 
 ## How GitHub is used
@@ -142,10 +116,6 @@ INTENT.md   why this exists and where it is going
 | Command | What it does |
 | --- | --- |
 | `npm run dev` | room server plus app, for development |
-| `npm run dev:codex` | development app plus your local Codex bridge |
-| `npm run bridge` | your local Codex connection, with a new pairing key |
-| `npm run test:bridge` | local bridge authentication, request, and process checks |
-| `npm run test:codex` | bridge plus chat cursor and prompt-context regressions |
 | `npm run share` | built app plus room server on port 4173, for the tunnel |
 | `npm run typecheck` | checks the code for type errors |
 | `npm run table -- <command>` | runs the AI helper command line, if you have the game-table-cli folder in here |

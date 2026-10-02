@@ -370,29 +370,6 @@ textarea {
   border-left: var(--line);
 }
 
-.compose-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.codex-panel {
-  border-top: var(--line);
-  margin-top: 12px;
-  padding-top: 4px;
-  font-size: 12px;
-}
-
-.codex-panel p { margin: 8px 0; overflow-wrap: anywhere; }
-.codex-panel summary { cursor: pointer; font-family: var(--font-mono); }
-.codex-panel .field { margin: 10px 0; }
-.codex-panel select { width: 100%; font-size: 12px; text-transform: none; }
-.codex-connect { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
-.codex-connect input, .codex-reply textarea { width: 100%; min-width: 0; }
-.codex-panel .row { flex-wrap: wrap; }
-.codex-reply button { margin-top: 6px; }
-.ask-message { font-size: 10px; margin-top: 8px; padding: 3px 6px; }
-
 /* Files */
 
 [hidden] {
