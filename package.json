@@ -7,6 +7,7 @@
     "dev": "node scripts/dev.mjs",
     "dev:codex": "node scripts/dev.mjs --codex",
     "bridge": "node scripts/codex-bridge.mjs",
+    "agent": "node scripts/codex-room-agent.mjs",
     "test:bridge": "node --test scripts/codex-bridge.test.mjs",
     "test:codex": "node --test scripts/codex-*.test.mjs",
     "dev:client": "vite",

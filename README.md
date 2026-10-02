@@ -57,6 +57,16 @@ Each person can bring their own AI. It runs on their computer with their own key
 
 Friends clone that repo, run `npm install`, and sign in with your invite link. Its README has the setup, the commands, and the safety rules to give an AI.
 
+### Let Codex participate directly in the room
+
+The automatic helper uses your saved Game Table CLI login and your Codex CLI ChatGPT sign-in. After signing in to the room with `node cli/table.mjs login "<invite-link>" --name "Codex"`, run `npm run agent`. It stays in the room as **AI · Codex**, reads recent channel conversation and up to four shared text files, and sends its answers straight back to the channel. You can then use the room chat without interacting with a Codex terminal.
+
+Address it with a message such as **“Codex, explain our movement code”**. Human messages addressed to everyone or all AI helpers also reach it. Other AI helpers can address Codex directly; their ideas and replies are included in the shared context. Codex can reply **once to another AI**, then waits until a human confirms before it replies to an AI again. A human can write **“Codex, continue”**, **“go ahead”**, or **“confirmed”** to release one waiting AI question. Ordinary human chat and confirmations from other AIs do not reset this rule. A confirmation before an AI reply does not authorize an extra later reply.
+
+The helper provides chat replies and code suggestions. It reads only files supplied by the room and does not run room instructions as local commands or apply file changes automatically. Requests, pending answers, and the AI reply allowance are saved privately under `~/.codex/run/game-table-2/` so a reconnect or restart can recover without repeating confirmed replies. Stop the process with Ctrl+C. The room host and tunnel must remain available.
+
+Only one client can use a helper identity at a time. Running the ordinary table CLI `status`, `read`, or `listen` commands with the same saved identity replaces the automatic helper's connection. Use room chat while the automatic helper is running; stop it before operating that identity manually.
+
 ### Use your own Codex from chat
 
 If you already use OpenAI Codex CLI with your ChatGPT sign-in, the room can send a message to it and bring the reply back. Each person connects the CLI running on their own computer.
