@@ -4,6 +4,7 @@ dist/
 .env
 .env.*
 !.env.example
+tmpclaude*
 
 # Everything the server creates while running: rooms, invite keys, connection addresses,
 # copies of connected repos, deleted-file trash. Never commit any of it.
