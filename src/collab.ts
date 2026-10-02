@@ -3,6 +3,8 @@
 // Each person's caret and selection are shared too, as Yjs relative positions, so they
 // stay attached to the right characters while other people type.
 import * as Y from 'yjs';
+import type { EditorView } from '@codemirror/view';
+import { createEditor } from './editor';
 import type { Actor } from './types';
 
 const LOCAL = 'local';
@@ -64,8 +66,7 @@ export class FileSession {
   private sendPresence: (presence: PresenceWire | null) => void;
   private doc = new Y.Doc();
   private text = this.doc.getText('content');
-  private textarea: HTMLTextAreaElement | null = null;
-  private listeners: Array<[string, () => void]> = [];
+  private editor: EditorView | null = null;
   private onChange: (() => void) | null = null;
   private remotes = new Map<string, RemoteState>();
   private presenceTimer: number | undefined;
@@ -91,30 +92,20 @@ export class FileSession {
     });
   }
 
-  // Show this file in a textarea, send whatever the person types, and share their caret.
+  // Show this file in the editor and send whatever the person types, along with their caret.
   // onChange is called whenever the text or anyone's caret moves, so the caller can redraw.
-  attach(textarea: HTMLTextAreaElement, onChange: () => void): void {
+  attach(container: HTMLElement, onChange: () => void): void {
     this.detach();
-    this.textarea = textarea;
     this.onChange = onChange;
-    textarea.value = this.text.toString();
-
-    const typed = () => {
-      this.applyLocal(textarea.value);
+    this.editor = createEditor(container, this.text, this.author, this.path, LOCAL, () => {
       this.onChange?.();
       this.publishSoon();
-    };
-    const moved = () => this.publishSoon();
-    this.listen(textarea, 'input', typed);
-    for (const name of ['keyup', 'mouseup', 'select', 'focus']) this.listen(textarea, name, moved);
-
-    this.heartbeat = window.setInterval(() => {
-      if (document.activeElement === textarea) this.publishNow();
-    }, HEARTBEAT_MS);
+    });
+    this.heartbeat = window.setInterval(() => this.publishNow(), HEARTBEAT_MS);
     this.onChange?.();
   }
 
-  // Merge an update from someone else and refresh the textarea, keeping your caret in place.
+  // Merge an update from someone else. The editor picks the change up from the shared text.
   applyRemote(base64Update: string): void {
     let update: Uint8Array;
     try {
@@ -122,30 +113,10 @@ export class FileSession {
     } catch {
       return;
     }
-    const textarea = this.textarea;
-    let start: Y.RelativePosition | null = null;
-    let end: Y.RelativePosition | null = null;
-    if (textarea && document.activeElement === textarea) {
-      start = Y.createRelativePositionFromTypeIndex(this.text, textarea.selectionStart);
-      end = Y.createRelativePositionFromTypeIndex(this.text, textarea.selectionEnd);
-    }
     try {
       Y.applyUpdate(this.doc, update, REMOTE);
     } catch {
       return;
-    }
-    if (textarea) {
-      const merged = this.text.toString();
-      if (textarea.value !== merged) {
-        const scrollTop = textarea.scrollTop;
-        textarea.value = merged;
-        textarea.scrollTop = scrollTop;
-        if (start && end) {
-          const from = Y.createAbsolutePositionFromRelativePosition(start, this.doc);
-          const to = Y.createAbsolutePositionFromRelativePosition(end, this.doc);
-          if (from && to) textarea.setSelectionRange(from.index, to.index);
-        }
-      }
     }
     this.onChange?.();
   }
@@ -208,6 +179,10 @@ export class FileSession {
     return out;
   }
 
+  getEditor(): EditorView | null {
+    return this.editor;
+  }
+
   // Send everything we have. Used after a reconnect so nothing typed offline is lost.
   pushAll(): void {
     this.flush();
@@ -231,16 +206,9 @@ export class FileSession {
     this.send(toBase64(merged));
   }
 
-  private listen(target: HTMLTextAreaElement, name: string, handler: () => void): void {
-    target.addEventListener(name, handler);
-    this.listeners.push([name, handler]);
-  }
-
   private detach(): void {
-    const textarea = this.textarea;
-    if (textarea) this.listeners.forEach(([name, handler]) => textarea.removeEventListener(name, handler));
-    this.listeners = [];
-    this.textarea = null;
+    this.editor?.destroy();
+    this.editor = null;
     this.onChange = null;
     window.clearInterval(this.heartbeat);
     window.clearTimeout(this.presenceTimer);
@@ -257,31 +225,13 @@ export class FileSession {
   }
 
   private publishNow(): void {
-    const textarea = this.textarea;
-    if (!textarea || document.activeElement !== textarea) return;
+    const editor = this.editor;
+    if (!editor || !editor.hasFocus) return;
+    const { anchor, head } = editor.state.selection.main;
     this.sendPresence({
-      start: Y.relativePositionToJSON(Y.createRelativePositionFromTypeIndex(this.text, textarea.selectionStart)),
-      end: Y.relativePositionToJSON(Y.createRelativePositionFromTypeIndex(this.text, textarea.selectionEnd)),
-      back: textarea.selectionDirection === 'backward',
+      start: Y.relativePositionToJSON(Y.createRelativePositionFromTypeIndex(this.text, Math.min(anchor, head))),
+      end: Y.relativePositionToJSON(Y.createRelativePositionFromTypeIndex(this.text, Math.max(anchor, head))),
+      back: head < anchor,
     });
-  }
-
-  // Turn "the textarea now says X" into the smallest insert/delete that gets the document there.
-  private applyLocal(next: string): void {
-    const old = this.text.toString();
-    if (old === next) return;
-    let start = 0;
-    const min = Math.min(old.length, next.length);
-    while (start < min && old.charCodeAt(start) === next.charCodeAt(start)) start++;
-    let endOld = old.length;
-    let endNew = next.length;
-    while (endOld > start && endNew > start && old.charCodeAt(endOld - 1) === next.charCodeAt(endNew - 1)) {
-      endOld--;
-      endNew--;
-    }
-    this.doc.transact(() => {
-      if (endOld > start) this.text.delete(start, endOld - start);
-      if (endNew > start) this.text.insert(start, next.slice(start, endNew), { author: this.author });
-    }, LOCAL);
   }
 }

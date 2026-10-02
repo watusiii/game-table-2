@@ -486,41 +486,24 @@ textarea {
   min-height: 0;
 }
 
-.file-text,
-.caret-inner {
-  padding: 22px 14px 14px;
-  font: 15px/1.6 var(--font-mono);
-  white-space: pre-wrap;
-  overflow-wrap: break-word;
-  word-wrap: break-word;
-}
-
-.file-text {
+/* CodeMirror editor container */
+.file-editor {
   flex: 1;
   min-height: 0;
-  border: 0;
+  display: flex;
+  flex-direction: column;
 }
 
-/* Other people's carets and selections, drawn over the textarea */
-
-.caret-layer {
-  position: absolute;
-  top: 0;
-  left: 0;
-  overflow: hidden;
-  pointer-events: none;
+/* Author color tint on text. The AUTHOR COLORS button turns it off with no-authors. */
+.author-span {
+  background: color-mix(in srgb, var(--c) 32%, transparent);
 }
 
-.caret-mirror {
-  --c: #999;
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
+.file-editor.no-authors .author-span {
+  background: none;
 }
 
-.caret-inner {
-  color: transparent;
-}
+/* Other people's carets and selections, drawn over the editor */
 
 .caret-sel {
   background: color-mix(in srgb, var(--c) 45%, transparent);

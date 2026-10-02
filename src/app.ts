@@ -1,4 +1,5 @@
-import { CaretLayer } from './carets';
+import { EditorView } from '@codemirror/view';
+import { editableCompartment, showRemoteCarets } from './editor';
 import type { DrawnCaret } from './carets';
 import type { FileSession } from './collab';
 import { cleanColor, inviteFromLocation, parseRepoInput, RoomClient } from './room';
@@ -22,8 +23,7 @@ interface RoomUi {
   filePane: HTMLElement;
   fileTitle: HTMLElement;
   fileNotice: HTMLElement;
-  fileText: HTMLTextAreaElement;
-  caretLayer: CaretLayer;
+  fileContainer: HTMLElement;
   repoLink: HTMLAnchorElement;
   previewButton: HTMLButtonElement;
   previewPane: HTMLElement;
@@ -484,11 +484,9 @@ function buildRoom(root: HTMLDivElement, snapshot: RoomSnapshot): RoomUi {
   const filePane = el('div', 'file-pane');
   const fileTitle = el('header', 'bar');
   const fileNotice = el('div', 'file-notice');
-  const fileText = el('textarea', 'file-text');
-  fileText.spellcheck = false;
+  const fileContainer = el('div', 'file-editor');
   const fileWrap = el('div', 'file-wrap');
-  fileWrap.append(fileText);
-  const caretLayer = new CaretLayer(fileText, fileWrap);
+  fileWrap.append(fileContainer);
   const historyButton = button('HISTORY', () => {
     if (current.history) room.closeHistory();
     else if (current.file) room.requestHistory(current.file.path);
@@ -611,8 +609,7 @@ function buildRoom(root: HTMLDivElement, snapshot: RoomSnapshot): RoomUi {
     filePane,
     fileTitle,
     fileNotice,
-    fileText,
-    caretLayer,
+    fileContainer,
     repoLink,
     previewButton,
     previewPane,
@@ -1016,29 +1013,34 @@ function renderFiles(view: RoomUi, snapshot: RoomSnapshot): void {
   view.fileNotice.textContent = snapshot.notice || (git.state === 'error' ? git.message : '');
 
   const session = room.getFileSession();
+  if (session) session.pruneRemotes(new Set(snapshot.members.map((member) => member.id)));
   if (session !== boundSession) {
     boundSession = session;
     if (session) {
-      session.attach(view.fileText, () => redraw(view));
+      session.attach(view.fileContainer, () => redraw(view));
     } else {
-      view.fileText.value = '';
-      view.caretLayer.set([]);
+      view.fileContainer.replaceChildren();
       drawAuthors(view);
     }
   }
   if (session) {
-    session.pruneRemotes(new Set(snapshot.members.map((member) => member.id)));
     redraw(view);
   }
-  view.fileText.disabled = !session || snapshot.status !== 'online';
-  // Viewers can read and copy but not change anything.
-  view.fileText.readOnly = !can('files:edit');
+
+  // Update read-only state for CodeMirror editor
+  const editor = session?.getEditor();
+  if (editor) {
+    const canEdit = snapshot.status === 'online' && can('files:edit');
+    editor.dispatch({
+      effects: editableCompartment.reconfigure(EditorView.editable.of(canEdit)),
+    });
+  }
 }
 
 // Redraws everything painted over the editor: who wrote what, and other people's carets.
 function redraw(view: RoomUi): void {
   drawAuthors(view);
-  drawCarets(view);
+  drawCarets();
 }
 
 // Colors each stretch of text by who wrote it, and lists the authors of the open file.
@@ -1047,7 +1049,7 @@ function drawAuthors(view: RoomUi): void {
   view.authorsButton.hidden = !session;
   view.authorsButton.classList.toggle('active', showAuthors);
   const segments = session && showAuthors ? session.authorSegments() : [];
-  view.caretLayer.setAuthors(segments);
+  view.fileContainer.classList.toggle('no-authors', !showAuthors);
   view.authorLegend.replaceChildren();
   const seen = new Set<string>();
   for (const segment of segments) {
@@ -1060,7 +1062,7 @@ function drawAuthors(view: RoomUi): void {
 }
 
 // Everyone else's caret and selection in the open file, in their own color.
-function drawCarets(view: RoomUi): void {
+function drawCarets(): void {
   if (!boundSession) return;
   const carets: DrawnCaret[] = [];
   for (const selection of boundSession.remoteSelections()) {
@@ -1069,7 +1071,7 @@ function drawCarets(view: RoomUi): void {
       carets.push({ ...selection, name: member.name, color: member.color });
     }
   }
-  view.caretLayer.set(carets);
+  showRemoteCarets(boundSession.getEditor(), carets);
 }
 
 function renderMessages(view: RoomUi, snapshot: RoomSnapshot): void {
