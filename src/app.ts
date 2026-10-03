@@ -2,8 +2,8 @@ import { EditorView } from '@codemirror/view';
 import { editableCompartment, showRemoteCarets } from './editor';
 import type { DrawnCaret } from './carets';
 import type { FileSession } from './collab';
-import { cleanColor, inviteFromLocation, parseRepoInput, RoomClient } from './room';
-import type { Channel, ChatMessage, FileVersion, GitState, Role, RoomMember, RoomSettings, RoomSnapshot, SlashCommand } from './types';
+import { cleanColor, discordStatus, inviteFromLocation, parseRepoInput, RoomClient } from './room';
+import type { Channel, ChatMessage, FileVersion, GitState, Role, RoomMember, RoomSnapshot, SlashCommand } from './types';
 
 interface RoomUi {
   roomName: HTMLElement;
@@ -48,6 +48,8 @@ interface RoomUi {
   toast: HTMLElement;
   membersCanDelete: HTMLInputElement;
   newPeopleViewers: HTMLInputElement;
+  discordServer: HTMLInputElement;
+  discordLink: HTMLButtonElement;
   bansBox: HTMLElement;
   bansList: HTMLElement;
   restoreAllButton: HTMLButtonElement;
@@ -61,6 +63,7 @@ let renderedKey = '';
 let showFile = false;
 let announcedWhere = '';
 let showPreview = false;
+let autoJoinedFromDiscord = false;
 let autoReload = true;
 let loadedPreviewRev = -1;
 let loadedPreviewUrl = '';
@@ -193,7 +196,7 @@ function renderGate(root: HTMLDivElement, snapshot: RoomSnapshot): void {
   }
 
   const joinCard = el('form', 'card');
-  const invite = textInput('Paste invite link', incoming ? window.location.href : '', 1_200);
+  const invite = textInput('Paste invite link', incoming?.inviteKey ? window.location.href : '', 1_200);
   invite.required = true;
   invite.addEventListener('input', () => invite.setCustomValidity(''));
   const joinName = textInput('Your name', RoomClient.savedName(), 28);
@@ -214,6 +217,30 @@ function renderGate(root: HTMLDivElement, snapshot: RoomSnapshot): void {
     room.joinRoom(details.roomId, details.inviteKey, joinName.value);
   });
   gate.append(joinCard);
+
+  // Sign in with Discord, if this server has it. A link with no key works for people in the room's Discord server.
+  void discordStatus().then((status) => {
+    if (!status.enabled || !gate.isConnected) return;
+    const card = el('section', 'card');
+    card.append(el('h2', '', 'Discord'));
+    if (status.name) {
+      card.append(el('p', '', 'Signed in as ' + status.name + '.'), button('SIGN OUT', () => {
+        window.location.href = '/auth/logout';
+      }));
+      if (incoming && !incoming.inviteKey && !autoJoinedFromDiscord) {
+        autoJoinedFromDiscord = true;
+        room.joinRoom(incoming.roomId, '', status.name);
+      }
+    } else {
+      card.append(
+        el('p', '', 'Use your Discord account instead of an invite link.'),
+        button('JOIN WITH DISCORD', () => {
+          window.location.href = '/auth/discord' + (incoming ? '?room=' + encodeURIComponent(incoming.roomId) : '');
+        }),
+      );
+    }
+    gate.prepend(card);
+  });
 
   root.append(gate);
 }
@@ -525,7 +552,7 @@ function buildRoom(root: HTMLDivElement, snapshot: RoomSnapshot): RoomUi {
     }
   });
   // A checkbox that changes one room setting.
-  const setting = (name: keyof RoomSettings, text: string) => {
+  const setting = (name: 'membersCanCreateChannels' | 'membersCanDeleteFiles' | 'newPeopleStartAsViewers', text: string) => {
     const box = el('input');
     box.type = 'checkbox';
     box.addEventListener('change', () => room.setSetting(name, box.checked));
@@ -535,7 +562,30 @@ function buildRoom(root: HTMLDivElement, snapshot: RoomSnapshot): RoomUi {
   };
   const canDelete = setting('membersCanDeleteFiles', 'MEMBERS CAN DELETE FILES');
   const newViewers = setting('newPeopleStartAsViewers', 'NEW PEOPLE JOIN AS VIEWERS');
-  settingsBox.append(el('h3', '', 'ROOM SETTINGS'), canCreateLabel, canDelete.label, newViewers.label, newInviteButton);
+  // Let a whole Discord server in without invite links: people sign in with Discord and open the link below.
+  const guildInput = textInput('Discord server ID (optional)', '', 20);
+  guildInput.addEventListener('change', () => room.setDiscordServer(guildInput.value));
+  const discordLinkButton = button('COPY DISCORD LINK', () => {
+    const link = window.location.origin + '/#room=' + encodeURIComponent(current.roomId);
+    navigator.clipboard.writeText(link).then(
+      () => {
+        discordLinkButton.textContent = 'COPIED';
+        window.setTimeout(() => {
+          discordLinkButton.textContent = 'COPY DISCORD LINK';
+        }, 1_500);
+      },
+      () => window.prompt('Copy the Discord link:', link),
+    );
+  });
+  settingsBox.append(
+    el('h3', '', 'ROOM SETTINGS'),
+    canCreateLabel,
+    canDelete.label,
+    newViewers.label,
+    field('Discord server', guildInput),
+    discordLinkButton,
+    newInviteButton,
+  );
 
   // People who were removed. Owner and admins can let them back in.
   const bansBox = el('div', 'settings-box');
@@ -634,6 +684,8 @@ function buildRoom(root: HTMLDivElement, snapshot: RoomSnapshot): RoomUi {
     toast,
     membersCanDelete: canDelete.box,
     newPeopleViewers: newViewers.box,
+    discordServer: guildInput,
+    discordLink: discordLinkButton,
     bansBox,
     bansList,
     restoreAllButton,
@@ -665,6 +717,8 @@ function updateRoom(view: RoomUi, snapshot: RoomSnapshot): void {
   view.membersCanCreate.checked = snapshot.settings.membersCanCreateChannels;
   view.membersCanDelete.checked = snapshot.settings.membersCanDeleteFiles;
   view.newPeopleViewers.checked = snapshot.settings.newPeopleStartAsViewers;
+  if (document.activeElement !== view.discordServer) view.discordServer.value = snapshot.settings.discordGuildId;
+  view.discordLink.hidden = !snapshot.settings.discordGuildId;
   view.bansBox.hidden = !can('members:kick') || !snapshot.bans.length;
   view.bansList.replaceChildren(
     ...snapshot.bans.map((ban) => {

@@ -9,6 +9,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRepo } from './repo.mjs';
 import { CommandError, commandsFor, isSlash, runCommand } from './commands.mjs';
+import { discordUser, handleAuth } from './discord.mjs';
 
 const PORT = Number(process.env.PORT) || 8787;
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
@@ -335,6 +336,7 @@ function migrateRoom(room) {
   if (typeof room.settings.membersCanCreateChannels !== 'boolean') room.settings.membersCanCreateChannels = false;
   if (typeof room.settings.membersCanDeleteFiles !== 'boolean') room.settings.membersCanDeleteFiles = false;
   if (typeof room.settings.newPeopleStartAsViewers !== 'boolean') room.settings.newPeopleStartAsViewers = false;
+  if (typeof room.settings.discordGuildId !== 'string') room.settings.discordGuildId = '';
 }
 
 function loadRooms() {
@@ -478,6 +480,10 @@ function respond(res, status, type, body) {
 }
 
 function handleHttp(req, res) {
+  if ((req.url ?? '').startsWith('/auth/')) {
+    void handleAuth(req, res, respond);
+    return;
+  }
   const match = /^\/preview\/([\w-]{1,64})\/([\w-]{1,128})\/([^?#]*)/.exec(req.url ?? '');
   if (req.method !== 'GET' || !match) {
     respond(res, 404, 'text/plain; charset=utf-8', 'Not found');
@@ -603,7 +609,7 @@ function makeRoom(owner, name, repoUrl) {
     repoUrl,
     roles: {},
     bans: [],
-    settings: { membersCanCreateChannels: false, membersCanDeleteFiles: false, newPeopleStartAsViewers: false },
+    settings: { membersCanCreateChannels: false, membersCanDeleteFiles: false, newPeopleStartAsViewers: false, discordGuildId: '' },
     channels: [general],
     messages: [
       {
@@ -719,12 +725,14 @@ function detach(ws) {
 function handle(ws, msg) {
   if (msg.type === 'create' || msg.type === 'join') {
     if (ws.ctx) return;
-    if (typeof msg.clientId !== 'string' || !CLIENT_PATTERN.test(msg.clientId)) {
+    // Signed in with Discord: that account is who you are, in every browser. AI helpers never use it.
+    const discord = ws.discord && msg.agent !== true ? ws.discord : null;
+    if (!discord && (typeof msg.clientId !== 'string' || !CLIENT_PATTERN.test(msg.clientId))) {
       sendError(ws, 'Invalid client.');
       return;
     }
-    const id = publicId(msg.clientId);
-    const name = cleanText(msg.name, 28) || 'Player';
+    const id = discord ? publicId('discord:' + discord.id) : publicId(msg.clientId);
+    const name = discord ? discord.name : cleanText(msg.name, 28) || 'Player';
     const color = cleanColor(msg.color);
     const agent = msg.agent === true;
 
@@ -747,8 +755,17 @@ function handle(ws, msg) {
       sendError(ws, 'That room no longer exists.', 'not-found');
       return;
     }
-    if (typeof msg.inviteKey !== 'string' || !safeEqual(msg.inviteKey, room.inviteKey)) {
-      sendError(ws, 'That invite link is not valid for this room.', 'bad-key');
+    // Either the invite key, or being in the Discord server the owner picked for this room.
+    const keyOk = typeof msg.inviteKey === 'string' && msg.inviteKey !== '' && safeEqual(msg.inviteKey, room.inviteKey);
+    const serverOk = Boolean(discord && room.settings.discordGuildId && discord.guilds.includes(room.settings.discordGuildId));
+    if (!keyOk && !serverOk) {
+      sendError(
+        ws,
+        discord && room.settings.discordGuildId
+          ? 'You are not in this room\'s Discord server, and there is no invite key.'
+          : 'That invite link is not valid for this room.',
+        'bad-key',
+      );
       return;
     }
     attach(ws, room, id, name, color, true, agent);
@@ -898,6 +915,7 @@ function handle(ws, msg) {
     if (typeof msg.membersCanCreateChannels === 'boolean') room.settings.membersCanCreateChannels = msg.membersCanCreateChannels;
     if (typeof msg.membersCanDeleteFiles === 'boolean') room.settings.membersCanDeleteFiles = msg.membersCanDeleteFiles;
     if (typeof msg.newPeopleStartAsViewers === 'boolean') room.settings.newPeopleStartAsViewers = msg.newPeopleStartAsViewers;
+    if (typeof msg.discordGuildId === 'string' && /^(\d{17,20})?$/.test(msg.discordGuildId.trim())) room.settings.discordGuildId = msg.discordGuildId.trim();
     broadcastPerms(room);
     scheduleSave();
     return;
@@ -1112,6 +1130,7 @@ const wss = new WebSocketServer({ server: httpServer, maxPayload: 64 * 1024 });
 wss.on('connection', (ws, req) => {
   ws.ctx = null;
   ws.ip = ipOf(req);
+  ws.discord = discordUser(req);
   ws.where = '';
   ws.lastCursorAt = 0;
   ws.isAlive = true;

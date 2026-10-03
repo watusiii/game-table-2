@@ -113,7 +113,7 @@ function inviteFromLocation(): { roomId: string; inviteKey: string } | null {
   const params = new URLSearchParams(window.location.hash.slice(1) || window.location.search);
   const roomId = params.get('room')?.trim() ?? '';
   const inviteKey = params.get('key')?.trim() ?? '';
-  if (!roomId || !inviteKey || roomId.length > 64 || inviteKey.length > 128) return null;
+  if (!roomId || roomId.length > 64 || inviteKey.length > 128) return null;
   return { roomId, inviteKey };
 }
 
@@ -169,6 +169,7 @@ function parseSettings(value: unknown): RoomSettings {
     membersCanCreateChannels: isRecord(value) && value.membersCanCreateChannels === true,
     membersCanDeleteFiles: isRecord(value) && value.membersCanDeleteFiles === true,
     newPeopleStartAsViewers: isRecord(value) && value.newPeopleStartAsViewers === true,
+    discordGuildId: isRecord(value) && typeof value.discordGuildId === 'string' ? value.discordGuildId : '',
   };
 }
 
@@ -208,7 +209,7 @@ function emptySnapshot(): RoomSnapshot {
     myRole: 'member',
     can: [],
     commands: [],
-    settings: { membersCanCreateChannels: false, membersCanDeleteFiles: false, newPeopleStartAsViewers: false },
+    settings: { membersCanCreateChannels: false, membersCanDeleteFiles: false, newPeopleStartAsViewers: false, discordGuildId: '' },
     bans: [],
     noticeSeq: 0,
   };
@@ -310,7 +311,8 @@ export class RoomClient {
   }
 
   joinRoom(roomId: string, inviteKey: string, nameInput: string): void {
-    if (!roomId.trim() || !inviteKey.trim()) {
+    // No key is fine when signed in with Discord: the room can let in its Discord server instead.
+    if (!roomId.trim()) {
       this.patch({ status: 'error', statusMessage: 'That invite link is missing its room details.' });
       return;
     }
@@ -442,7 +444,11 @@ export class RoomClient {
     this.send({ type: 'invite:reset' });
   }
 
-  setSetting(name: keyof RoomSettings, value: boolean): void {
+  setDiscordServer(id: string): void {
+    this.send({ type: 'settings:update', discordGuildId: id.trim() });
+  }
+
+  setSetting(name: Exclude<keyof RoomSettings, 'discordGuildId'>, value: boolean): void {
     this.send({ type: 'settings:update', [name]: value });
   }
 
@@ -849,3 +855,16 @@ export class RoomClient {
 
 export type { MessageKind };
 export { inviteFromLocation };
+
+// Whether this server has Discord sign-in, and who (if anyone) is signed in.
+export async function discordStatus(): Promise<{ enabled: boolean; name: string }> {
+  try {
+    const response = await fetch('/auth/me', { credentials: 'same-origin' });
+    const data: unknown = await response.json();
+    if (!isRecord(data)) return { enabled: false, name: '' };
+    const user = isRecord(data.user) && typeof data.user.name === 'string' ? data.user.name : '';
+    return { enabled: data.enabled === true, name: user };
+  } catch {
+    return { enabled: false, name: '' };
+  }
+}

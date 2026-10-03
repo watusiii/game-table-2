@@ -5,6 +5,7 @@ import { defineConfig } from 'vite';
 const proxy = {
   '/ws': { target: 'ws://127.0.0.1:8787', ws: true },
   '/preview': { target: 'http://127.0.0.1:8787' },
+  '/auth': { target: 'http://127.0.0.1:8787' },
 };
 const allowedHosts = ['.trycloudflare.com'];
 

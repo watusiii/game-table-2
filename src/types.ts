@@ -15,6 +15,7 @@ export interface RoomSettings {
   membersCanCreateChannels: boolean;
   membersCanDeleteFiles: boolean;
   newPeopleStartAsViewers: boolean;
+  discordGuildId: string;
 }
 
 // Someone who was removed from the room. Owner and admins can let them back in.
