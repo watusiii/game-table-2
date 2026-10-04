@@ -364,6 +364,22 @@ export class RoomClient {
     this.send({ type: 'file:open', path });
   }
 
+  // Looking at a picture or other non-text file: nothing to edit, so close the live document.
+  openMedia(): void {
+    this.openPath = '';
+    this.disposeFile();
+    this.patch({ notice: '', file: null, history: null });
+  }
+
+  // Where a file in the repo can be loaded from, for pictures, sound and the like.
+  fileUrl(path: string): string {
+    if (!this.session) return '';
+    return (
+      '/preview/' + encodeURIComponent(this.session.roomId) + '/' + encodeURIComponent(this.session.inviteKey) + '/' +
+      path.split('/').map(encodeURIComponent).join('/')
+    );
+  }
+
   // The live document for the open file. The editor attaches its textarea to this.
   getFileSession(): FileSession | null {
     return this.fileSession;

@@ -466,16 +466,20 @@ function notifyPreview(room) {
 /* ---------- Game preview over HTTP ---------- */
 
 // GET /preview/<room>/<invite key>/<file>. Read-only, and only for people who hold the invite.
+// Pictures, sound, video and PDFs cannot run script, so they are shown as they are.
+// Everything else (pages, svg) runs sandboxed even when opened directly in a tab.
+const PLAIN_MEDIA = /^(image\/(?!svg)|audio\/|video\/|application\/pdf)/;
+
 function respond(res, status, type, body) {
-  res.writeHead(status, {
+  const headers = {
     'Content-Type': type,
     'Content-Length': Buffer.byteLength(body),
     'Cache-Control': 'no-store',
     'X-Content-Type-Options': 'nosniff',
     'Access-Control-Allow-Origin': '*',
-    // Even if opened directly in a tab, the page runs sandboxed, cut off from the room and the app.
-    'Content-Security-Policy': 'sandbox allow-scripts allow-pointer-lock',
-  });
+  };
+  if (!PLAIN_MEDIA.test(type)) headers['Content-Security-Policy'] = 'sandbox allow-scripts allow-pointer-lock';
+  res.writeHead(status, headers);
   res.end(body);
 }
 
@@ -502,12 +506,54 @@ function handleHttp(req, res) {
     return;
   }
   if (path === '' || path.endsWith('/')) path += 'index.html';
-  const file = repoFor(room)?.readPreview(path);
+  const prefix = '/preview/' + match[1] + '/' + match[2] + '/';
+  // A game written for a dev server does `import './style.css'`, which a browser cannot do on its own.
+  // When a stylesheet is asked for as a script, answer with a tiny module that adds the stylesheet.
+  if (req.headers['sec-fetch-dest'] === 'script' && /\.css$/i.test(path)) {
+    const href = prefix + path.split('/').map(encodeURIComponent).join('/');
+    const code = 'const l=document.createElement("link");l.rel="stylesheet";l.href=' + JSON.stringify(href) + ';document.head.append(l);export default "";';
+    respond(res, 200, 'text/javascript; charset=utf-8', code);
+    return;
+  }
+  const repo = repoFor(room);
+  // Vite projects keep files like /assets/x.png inside public/, so look there too.
+  const file = repo?.readPreview(path) ?? (path.startsWith('public/') ? null : repo?.readPreview('public/' + path));
   if (!file) {
     respond(res, 404, 'text/plain; charset=utf-8', 'Nothing at ' + path + ' in the repo yet.');
     return;
   }
+  // Same idea for `import data from './data.json'`: a browser needs it as a module, not as json.
+  if (req.headers['sec-fetch-dest'] === 'script' && /\.json$/i.test(path)) {
+    try {
+      const data = JSON.parse(file.body.toString('utf8'));
+      respond(res, 200, 'text/javascript; charset=utf-8', 'export default ' + JSON.stringify(data).replace(/</g, '\\u003c') + ';');
+      return;
+    } catch {
+      // Not valid json: fall through and serve it as it is.
+    }
+  }
+  if (/^text\/(html|javascript|css)/.test(file.type) && file.body.length <= 2_000_000) {
+    let text = rebase(file.body.toString('utf8'), prefix);
+    if (file.type.startsWith('text/html') && !/type\s*=\s*["']?importmap/i.test(text)) {
+      const extra = IMAGE_SHIM + importMapFor(repo);
+      text = /<head[^>]*>/i.test(text) ? text.replace(/<head[^>]*>/i, (tag) => tag + extra) : extra + text;
+    }
+    respond(res, 200, file.type, Buffer.from(text, 'utf8'));
+    return;
+  }
   respond(res, 200, file.type, file.body);
+}
+
+// A game built for a dev server asks for "/src/main.js" from the site root, which is not where the files are here.
+// Pages, scripts and styles are served with those root paths pointed into this room's files. The repo itself is not changed.
+const ROOT_FILE = /(["'`])\/(?!\/)([\w\-./@%]+\.(?:html?|m?js|css|json|png|jpe?g|gif|webp|avif|svg|ico|mp3|wav|ogg|m4a|mp4|webm|glb|gltf|wasm|woff2?|ttf|otf|bin))\1/gi;
+const ROOT_URL = /url\(\s*(["']?)\/(?!\/)/gi;
+
+function rebase(text, prefix) {
+  return text
+    .replace(/import\.meta\.env\b/g, '({BASE_URL:' + JSON.stringify(prefix) + ',MODE:"development",DEV:true,PROD:false,SSR:false})')
+    .replace(ROOT_FILE, (_whole, quote, rest) => quote + prefix + rest + quote)
+    .replace(ROOT_URL, (_whole, quote) => 'url(' + quote + prefix);
 }
 
 /* ---------- Rooms and messages ---------- */
@@ -1196,3 +1242,37 @@ async function shutdown() {
 }
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
+
+// Packages listed under "dependencies" in the repo's package.json are loaded from a CDN with an import map,
+// so `import * as THREE from 'three'` works with no build step. The page runs sandboxed, so it cannot reach the room or the app.
+// A page that brings its own import map is left alone.
+function importMapFor(repo) {
+  const file = repo?.readPreview('package.json');
+  if (!file) return '';
+  let deps;
+  try {
+    deps = JSON.parse(file.body.toString('utf8')).dependencies;
+  } catch {
+    return '';
+  }
+  if (!deps || typeof deps !== 'object') return '';
+  const imports = {};
+  for (const [name, range] of Object.entries(deps).slice(0, 50)) {
+    const version = typeof range === 'string' ? range.replace(/^[\^~]/, '') : '';
+    if (!/^(@[a-z0-9][\w.-]*\/)?[a-z0-9][\w.-]*$/i.test(name) || !/^\d+(\.\d+){0,2}([-+][\w.]+)?$/.test(version)) continue;
+    const url = 'https://esm.sh/' + name + '@' + version;
+    imports[name] = url;
+    imports[name + '/'] = url + '/';
+  }
+  return Object.keys(imports).length ? '<script type="importmap">' + JSON.stringify({ imports }) + '</script>' : '';
+}
+
+// The preview page is sandboxed, so to the browser every file the room serves is "another site".
+// Drawing such a picture to a canvas and reading it back (getImageData, WebGL textures) is blocked unless the image
+// was asked for with CORS, and the room's files are sent with the CORS header. This makes pictures from the room
+// ask that way. Pictures from other sites are left alone, since many of them would stop loading.
+const IMAGE_SHIM =
+  '<script>(()=>{const d=Object.getOwnPropertyDescriptor(HTMLImageElement.prototype,"src");' +
+  'if(!d||!d.set)return;const home=new URL(document.baseURI).origin;' +
+  'Object.defineProperty(HTMLImageElement.prototype,"src",{configurable:true,enumerable:d.enumerable,get:d.get,' +
+  'set(v){try{if(!this.crossOrigin&&new URL(String(v),document.baseURI).origin===home)this.crossOrigin="anonymous"}catch{}d.set.call(this,v)}})})()</script>';

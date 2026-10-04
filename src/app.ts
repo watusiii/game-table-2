@@ -2,6 +2,7 @@ import { EditorView } from '@codemirror/view';
 import { editableCompartment, showRemoteCarets } from './editor';
 import type { DrawnCaret } from './carets';
 import type { FileSession } from './collab';
+import { kindOf, renderMedia } from './media';
 import { cleanColor, discordStatus, inviteFromLocation, parseRepoInput, RoomClient } from './room';
 import type { Channel, ChatMessage, FileVersion, GitState, Role, RoomMember, RoomSnapshot, SlashCommand } from './types';
 
@@ -24,6 +25,7 @@ interface RoomUi {
   fileTitle: HTMLElement;
   fileNotice: HTMLElement;
   fileContainer: HTMLElement;
+  mediaPane: HTMLElement;
   repoLink: HTMLAnchorElement;
   previewButton: HTMLButtonElement;
   previewPane: HTMLElement;
@@ -61,6 +63,9 @@ let ui: RoomUi | null = null;
 let activeChannelId = '';
 let renderedKey = '';
 let showFile = false;
+// A picture, sound or other non-text file being looked at (the editor is closed while this is set).
+let mediaPath = '';
+let renderedMediaKey = '';
 let announcedWhere = '';
 let showPreview = false;
 let autoJoinedFromDiscord = false;
@@ -513,7 +518,9 @@ function buildRoom(root: HTMLDivElement, snapshot: RoomSnapshot): RoomUi {
   const fileNotice = el('div', 'file-notice');
   const fileContainer = el('div', 'file-editor');
   const fileWrap = el('div', 'file-wrap');
-  fileWrap.append(fileContainer);
+  const mediaPane = el('div', 'media-pane');
+  mediaPane.style.display = 'none';
+  fileWrap.append(fileContainer, mediaPane);
   const historyButton = button('HISTORY', () => {
     if (current.history) room.closeHistory();
     else if (current.file) room.requestHistory(current.file.path);
@@ -660,6 +667,7 @@ function buildRoom(root: HTMLDivElement, snapshot: RoomSnapshot): RoomUi {
     fileTitle,
     fileNotice,
     fileContainer,
+    mediaPane,
     repoLink,
     previewButton,
     previewPane,
@@ -753,7 +761,7 @@ function updateRoom(view: RoomUi, snapshot: RoomSnapshot): void {
 
   // Tell the room where we are, so others see it in the member list and beside the channel or file.
   const where = showFile
-    ? snapshot.file ? 'file:' + snapshot.file.path : ''
+    ? snapshot.file ? 'file:' + snapshot.file.path : mediaPath ? 'file:' + mediaPath : ''
     : activeChannelId ? 'channel:' + activeChannelId : '';
   if (where && where !== announcedWhere) {
     announcedWhere = where;
@@ -914,7 +922,13 @@ const GIT_LABELS: Record<GitState, string> = {
 
 function openFileView(path: string): void {
   showFile = true;
-  room.openFile(path);
+  if (kindOf(path) === 'text') {
+    mediaPath = '';
+    room.openFile(path);
+  } else {
+    mediaPath = path;
+    room.openMedia();
+  }
   if (ui) updateRoom(ui, current);
 }
 
@@ -987,7 +1001,7 @@ function renderFiles(view: RoomUi, snapshot: RoomSnapshot): void {
       const item = button(entry.name, () => openFileView(path));
       item.classList.add('tree-name');
       item.title = path;
-      item.classList.toggle('active', showFile && openPath === path);
+      item.classList.toggle('active', showFile && (openPath === path || mediaPath === path));
       appendPresence(item, snapshot, 'file:' + path);
       const remove = button('\u00d7', () => {
         if (window.confirm('Delete ' + path + '? It is removed from GitHub too, though GitHub keeps its history.')) {
@@ -996,7 +1010,7 @@ function renderFiles(view: RoomUi, snapshot: RoomSnapshot): void {
       });
       remove.classList.add('tree-x');
       remove.title = 'Delete ' + path;
-      remove.hidden = !can('files:delete');
+      remove.hidden = !can('files:delete') || kindOf(path) !== 'text';
       row.append(branch, item, remove);
       rows.append(row);
     });
@@ -1055,7 +1069,22 @@ function renderFiles(view: RoomUi, snapshot: RoomSnapshot): void {
 
   const file = snapshot.file;
   const git = snapshot.git;
-  view.fileTitle.textContent = file
+  if (mediaPath && !snapshot.files.includes(mediaPath)) mediaPath = '';
+  const showingMedia = Boolean(mediaPath) && !file;
+  view.fileContainer.style.display = showingMedia ? 'none' : '';
+  view.mediaPane.style.display = showingMedia ? '' : 'none';
+  if (showingMedia) {
+    const key = mediaPath + '|' + snapshot.files.length + '|' + snapshot.status;
+    if (key !== renderedMediaKey) {
+      renderedMediaKey = key;
+      renderMedia(view.mediaPane, mediaPath, snapshot.files, (name) => room.fileUrl(name), openFileView);
+    }
+  } else {
+    renderedMediaKey = '';
+  }
+  view.fileTitle.textContent = showingMedia
+    ? mediaPath + hereLabel(snapshot, 'file:' + mediaPath)
+    : file
     ? file.path +
       ' · ' +
       GIT_LABELS[git.state] +

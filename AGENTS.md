@@ -36,3 +36,9 @@ one we already had. Both came from acting before checking. Check first.
 - Run `npm run check` and the tests that exist for what you touched. Say what you ran.
 - Summarize in a few lines: what changed, what you did not touch, what you could not test.
 - Do not commit or push unless asked.
+
+## Game preview
+
+- The preview serves `index.html` and the repo files as they are. There is no build step and no `node_modules`.
+- Plain relative imports (`./util.js`) work. `/src/main.js` style root paths and `import './style.css'` are also handled by the preview.
+- Bare package imports (`import * as THREE from 'three'`) do not work as they are. Add an import map in `index.html` pointing at a CDN URL, or commit the library file and import it by path.

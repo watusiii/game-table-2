@@ -16,6 +16,7 @@ const ALLOWED_EXT = /\.(md|txt|json|js|mjs|ts|html|css)$/i;
 const MAX_FILE_CHARS = 200_000;
 const MAX_UPDATE_CHARS = 90_000;
 const MAX_FILES = 200;
+const MAX_OTHER_FILES = 500; // images, audio and other non-text files listed for viewing
 const MAX_TRASH = 100;
 const MAX_TRASH_CHARS = 5_000_000;
 const MAX_VERSIONS = 20;
@@ -43,6 +44,18 @@ const PREVIEW_TYPES = {
   '.jpeg': 'image/jpeg',
   '.gif': 'image/gif',
   '.webp': 'image/webp',
+  '.avif': 'image/avif',
+  '.bmp': 'image/bmp',
+  '.mp4': 'video/mp4',
+  '.webm': 'video/webm',
+  '.m4a': 'audio/mp4',
+  '.flac': 'audio/flac',
+  '.pdf': 'application/pdf',
+  '.otf': 'font/otf',
+  '.csv': 'text/plain; charset=utf-8',
+  '.xml': 'text/plain; charset=utf-8',
+  '.yml': 'text/plain; charset=utf-8',
+  '.yaml': 'text/plain; charset=utf-8',
   '.ico': 'image/x-icon',
   '.mp3': 'audio/mpeg',
   '.wav': 'audio/wav',
@@ -258,14 +271,24 @@ export function createRepo({ url, branch = '', dir, onStatus: reportStatus, onUp
     return abs.startsWith(repoDir + sep) ? abs : null;
   }
 
-  function scan(folder, base = '', depth = 0, out = []) {
+  // Any plain file name is fine to show in the tree. Reading it still goes through readPreview's checks.
+  const LISTABLE = /^[^\u0000-\u001f\\<>"|?*]{1,200}$/;
+
+  function scan(folder, base = '', depth = 0, out = [], counts = { text: 0, other: 0 }) {
     if (depth > 3) return out;
     for (const entry of readdirSync(folder, { withFileTypes: true })) {
-      if (out.length >= MAX_FILES) break;
       if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
       const rel = base ? base + '/' + entry.name : entry.name;
-      if (entry.isDirectory()) scan(join(folder, entry.name), rel, depth + 1, out);
-      else if (resolveFile(rel)) out.push(rel);
+      if (entry.isDirectory()) scan(join(folder, entry.name), rel, depth + 1, out, counts);
+      else if (resolveFile(rel)) {
+        if (counts.text < MAX_FILES) {
+          counts.text += 1;
+          out.push(rel);
+        }
+      } else if (entry.isFile() && LISTABLE.test(rel) && counts.other < MAX_OTHER_FILES) {
+        counts.other += 1;
+        out.push(rel);
+      }
     }
     return out.sort();
   }
