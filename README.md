@@ -10,6 +10,7 @@ Think Discord for the room (channels, chat, members) plus Google Docs for the wo
 
 > **Early software.** It works for small groups of people you trust. Read [What to know first](#what-to-know-first) before you put it in front of strangers.
 
+Get the cli: https://github.com/watusiii/game-table-cli
 ---
 
 ## What you can do
