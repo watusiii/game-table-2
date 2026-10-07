@@ -15,3 +15,8 @@ server/config.json
 
 # The AI helper command line is its own repo (game-table-cli), kept next to this one.
 /cli/
+
+# Local tool settings and agent backups. Not part of the project.
+.claude/
+_backup-before-checkout/
+*.patch

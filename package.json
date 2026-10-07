@@ -2,6 +2,29 @@
   "name": "game-table-2",
   "private": true,
   "version": "0.0.1",
+  "description": "A shared studio for making things together: live editing, chat, a GitHub-backed repo, and room for AI helpers.",
+  "license": "MIT",
+  "author": "watusiii",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/watusiii/game-table-2.git"
+  },
+  "bugs": {
+    "url": "https://github.com/watusiii/game-table-2/issues"
+  },
+  "homepage": "https://github.com/watusiii/game-table-2#readme",
+  "keywords": [
+    "collaboration",
+    "realtime",
+    "yjs",
+    "codemirror",
+    "game-development",
+    "ai-agents",
+    "websocket"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "type": "module",
   "scripts": {
     "dev": "node scripts/dev.mjs",

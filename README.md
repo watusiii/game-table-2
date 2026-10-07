@@ -4,6 +4,10 @@ A shared studio for making things together, with your friends and their AI helpe
 
 Think Discord for the room (channels, chat, members) plus Google Docs for the work (everyone edits the same files at once, with colored cursors), backed by a GitHub repo so nothing is ever lost. The first use case is game development, and there is a live game preview next to the editor.
 
+![Two people editing the same file, with live cursors and author colors](docs/screenshot.png)
+
+[![CI](https://github.com/watusiii/game-table-2/actions/workflows/ci.yml/badge.svg)](https://github.com/watusiii/game-table-2/actions/workflows/ci.yml)
+
 > **Early software.** It works for small groups of people you trust. Read [What to know first](#what-to-know-first) before you put it in front of strangers.
 
 ---
@@ -13,7 +17,7 @@ Think Discord for the room (channels, chat, members) plus Google Docs for the wo
 - **Talk** in channels, like Discord.
 - **Edit files together, live.** Simultaneous typing merges. You see everyone's cursor and selection, and every stretch of text is tinted by who wrote it.
 - **Save to GitHub automatically.** Edits go to a branch of the room's own. A **Propose** button opens a GitHub pull request, so the main branch only changes when your group accepts something.
-- **Play the game while you build it.** A preview pane runs the repo's `index.html` in a sandbox and reloads when files change.
+- **Play the game while you build it.** A preview pane runs the repo's `index.html` in a sandbox and reloads when files change. Vite-style projects (root paths, `public/`, CSS imports, packages from `package.json`) run without a build step.
 - **Bring AI helpers.** Anyone's AI (Claude Code, Codex, a local model, a script) can join through a small command-line tool, listen, talk, and edit files live, labeled as AI.
 - **Run the room.** Owner and admins set roles, remove people, and delete channels. Deleted files can be restored, and every saved version can be brought back.
 
@@ -57,41 +61,31 @@ Each person can bring their own AI. It runs on their computer with their own key
 
 Friends clone that repo, run `npm install`, and sign in with your invite link. Its README has the setup, the commands, and the safety rules to give an AI.
 
-### Let Codex participate directly in the room
+Anything that can run a terminal command works: Claude Code, Codex, a local model, a script. The CLI README has the setup and the safety rules to give an AI.
 
-The automatic helper uses your saved Game Table CLI login and your Codex CLI ChatGPT sign-in. After signing in to the room with `node cli/table.mjs login "<invite-link>" --name "Codex"`, run `npm run agent`. It stays in the room as **AI · Codex**, reads recent channel conversation and up to four shared text files, and sends its answers straight back to the channel. You can then use the room chat without interacting with a Codex terminal.
+---
 
-Address it with a message such as **"Codex, explain our movement code"**. Human messages addressed to everyone or all AI helpers also reach it. Other AI helpers can address Codex directly; their ideas and replies are included in the shared context. Codex can reply **once to another AI**, then waits until a human confirms before it replies to an AI again. A human can write **"Codex, continue"**, **"go ahead"**, or **"confirmed"** to release one waiting AI question. Ordinary human chat and confirmations from other AIs do not reset this rule. A confirmation before an AI reply does not authorize an extra later reply.
+## Slash commands
 
-The helper provides chat replies and code suggestions. It reads only files supplied by the room and does not run room instructions as local commands or apply file changes automatically. Requests, pending answers, and the AI reply allowance are saved privately under `~/.codex/run/game-table-2/` so a reconnect or restart can recover without repeating confirmed replies. Stop the process with Ctrl+C. The room host and tunnel must remain available.
+Type `/` in the chat for a menu. They run on the server from a fixed list, so there is no way to run arbitrary git or shell commands from chat.
 
-Only one client can use a helper identity at a time. Running the ordinary table CLI `status`, `read`, or `listen` commands with the same saved identity replaces the automatic helper's connection. Use room chat while the automatic helper is running; stop it before operating that identity manually.
+| Command | What it does | Who |
+| --- | --- | --- |
+| `/help`, `/rules` | list commands, show the room rules | everyone |
+| `/status`, `/log`, `/diff`, `/branch` | what changed on the room's branch | members and up |
+| `/issues`, `/issue`, `/pr` | read GitHub issues and pull requests | members and up |
+| `/issue new`, `/pr open` | create an issue or open a proposal | members and up |
+| `/update` | pull `main` into the room's branch | members and up |
+| `/merge N confirm` | merge a pull request | owner only, never an AI |
 
-### Use your own Codex from chat
+## Files and images
 
-If you already use OpenAI Codex CLI with your ChatGPT sign-in, the room can send a message to it and bring the reply back. Each person connects the CLI running on their own computer.
+The file tree lists every file in the repo. Text opens in the live editor. Pictures (png, jpg, webp, gif, svg), audio, video, PDFs and fonts open read-only in a viewer, with a thumbnail strip for the rest of the folder. Other types show up in the tree with a note.
 
-1. Run `codex login` if your CLI is not signed in with ChatGPT yet.
-2. Start `npm run bridge` in a second terminal. For local development, `npm run dev:codex` starts the app and the bridge together instead.
-3. In the room sidebar, open **MY AI → CONNECT MY AI**, paste the pairing key printed in your terminal, and click **CONNECT**.
-4. Type a prompt and click **ASK MY AI**, or use **ASK MY AI** under a message already in the channel. Selecting part of your draft asks about that text.
-5. Choose the reply destination. **Insert at chat cursor** puts the reply at the text cursor you had when you asked, preserving the rest of your draft and following edits made while Codex works. Click **SEND** to share that draft; it is labeled as AI. **Post to chat automatically** sends the response directly to the original channel, labeled **AI · Your Name**.
+## Optional: Join with Discord
 
-Codex receives your prompt and up to 24 recent messages from that channel. It runs in a temporary read-only workspace for each request, with execution and external tool integrations disabled. It cannot edit your local project or the room's files through this chat connection. Replies go into the **chat input**, not the shared file editor.
+If you set up a Discord application (see `server/config.example.json`), people can join a room by signing in with Discord instead of using an invite link, and the owner can limit a room to members of one Discord server. This is off unless you configure it.
 
-Compatible personal model and response preferences are reused. Model names that are available only in the desktop app fall back to the CLI's own defaults. This integration was verified with Codex CLI 0.155.1.
-
-ASK MY AI sends your prompt and the last 24 messages of the channel to your own AI. Nobody else in the room is told when you do.
-
-The pairing key stays in your browser tab and goes only to the local bridge at `http://127.0.0.1:43198`. Your CLI credentials stay on your computer. The bridge must remain running; restarting it creates a new key, so connect again. You can cancel an in-progress request. Cursor replies are kept for recovery if you change rooms or channels before they arrive. Automatic chat replies still go to the original channel. When a reply cannot be delivered because you left, disconnected, or lost permissions, the UI keeps it for copying, posting to its original channel, or discarding.
-
-For a room opened through a tunnel, start the bridge with that exact page origin allowed:
-
-```bash
-GAME_TABLE_ORIGINS=https://your-room.trycloudflare.com npm run bridge
-```
-
-When prompted by your browser, allow the room page to access your local network. The room server and tunnel do not carry the pairing key or launch your CLI.
 ---
 
 ## How GitHub is used
@@ -153,6 +147,7 @@ INTENT.md   why this exists and where it is going
 | `npm run dev` | room server plus app, for development |
 | `npm run share` | built app plus room server on port 4173, for the tunnel |
 | `npm run typecheck` | checks the code for type errors |
+| `npm run check` | catches leftover merge conflicts, broken JSON, and type errors |
 | `npm run table -- <command>` | runs the AI helper command line, if you have the game-table-cli folder in here |
 
 ---
@@ -161,4 +156,13 @@ INTENT.md   why this exists and where it is going
 
 Working: rooms, channels, live editing with cursors and authorship, GitHub sync on branches, game preview, roles and permissions, flood limits, undo and history, AI helpers through the CLI.
 
-Not yet: real accounts, custom roles, per-channel and per-file permissions, an "update from main" button, proposals for individual AI edits, and asset handling for images, audio, and 3D. See [INTENT.md](INTENT.md).
+Not yet: real accounts, custom roles, per-channel and per-file permissions, proposals for individual AI edits, and a 3D model viewer. See [INTENT.md](INTENT.md).
+
+---
+
+## Contributing, security, license
+
+- Want to help? Read [CONTRIBUTING.md](CONTRIBUTING.md). Small, focused pull requests are easiest to merge.
+- Found a security problem? Please do not open a public issue. See [SECURITY.md](SECURITY.md).
+- Be kind. See [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+- License: [MIT](LICENSE). The software is provided as is, with no warranty.
