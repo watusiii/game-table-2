@@ -51,7 +51,7 @@
     "yjs": "^13.6.20"
   },
   "devDependencies": {
-    "typescript": "^5.7.2",
+    "typescript": "^7.0.2",
     "vite": "^6.0.7"
   }
 }
