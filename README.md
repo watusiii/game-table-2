@@ -28,7 +28,7 @@ Get the cli: https://github.com/watusiii/game-table-cli
 
 You need:
 
-- **Node.js 20 or newer**
+- **Node.js 22.12 or newer**
 - **Git**, already signed in to GitHub on your computer (if you can `git push` from a terminal, you are set)
 
 ```bash
