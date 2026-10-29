@@ -10,7 +10,7 @@ npm run dev      # room server + app on http://localhost:5174
 npm run check    # merge-conflict markers, broken JSON, type errors
 ```
 
-You need Node.js 20 or newer and Git.
+You need Node.js 22.12 or newer and Git.
 
 ## What makes a good change
 
