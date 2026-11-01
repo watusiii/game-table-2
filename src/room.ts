@@ -765,7 +765,7 @@ export class RoomClient {
         );
       }
       this.fileSession.applyRemote(value.update);
-      if (resync) this.fileSession.pushAll();
+      if (resync) this.fileSession.pushMissing(value.update);
       this.patch({ file: { path, editedBy: this.snapshot.file?.editedBy ?? '' } });
       return;
     }
