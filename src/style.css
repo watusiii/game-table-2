@@ -355,6 +355,7 @@ textarea {
   padding: 8px 12px;
   border: 1px solid var(--ink);
   background: color-mix(in srgb, var(--c) 26%, var(--bg));
+  border-radius: 12px;
 }
 
 .msg.own {
@@ -397,6 +398,100 @@ textarea {
   margin-top: 4px;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.msg-text a {
+  color: #4a9eff;
+  text-decoration: underline;
+}
+
+.msg-text a:hover {
+  color: #6bb3ff;
+}
+
+/* Typing indicator */
+.typing-indicator {
+  padding: 8px 12px;
+  font-size: 13px;
+  opacity: 0.7;
+  font-style: italic;
+}
+
+.typing-dots {
+  display: inline-block;
+  animation: typing-pulse 1.4s infinite;
+}
+
+@keyframes typing-pulse {
+  0%, 60%, 100% { opacity: 0.3; }
+  30% { opacity: 1; }
+}
+
+/* Reactions */
+.reactions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+
+.reaction {
+  padding: 3px 8px;
+  font-size: 13px;
+  border: 1px solid var(--ink);
+  background: var(--field);
+  cursor: pointer;
+  transition: background 0.15s;
+  border-radius: 12px;
+}
+
+.reaction:hover {
+  background: var(--panel);
+}
+
+.reaction.reacted {
+  background: color-mix(in srgb, var(--ink) 12%, var(--field));
+  font-weight: 600;
+}
+
+.add-reaction {
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.msg:hover .add-reaction {
+  opacity: 1;
+}
+
+.add-reaction:hover {
+  opacity: 1 !important;
+}
+
+/* Emoji picker */
+.emoji-picker {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 4px;
+  padding: 8px;
+  background: var(--field);
+  border: var(--line);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 1000;
+  border-radius: 8px;
+}
+
+.emoji-btn {
+  padding: 6px;
+  font-size: 20px;
+  border: 1px solid var(--ink);
+  background: var(--field);
+  cursor: pointer;
+  transition: background 0.1s;
+  border-radius: 6px;
+}
+
+.emoji-btn:hover {
+  background: var(--panel);
 }
 
 .dot {

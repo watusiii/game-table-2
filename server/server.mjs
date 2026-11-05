@@ -103,7 +103,13 @@ function safeEqual(a, b) {
 }
 
 function send(ws, packet) {
-  if (ws.readyState === 1) ws.send(JSON.stringify(packet));
+  if (ws.readyState === 1) {
+    try {
+      ws.send(JSON.stringify(packet));
+    } catch (error) {
+      console.error('[send] Error:', error, 'packet type:', packet.type);
+    }
+  }
 }
 
 function sendError(ws, message, code = 'error') {
@@ -118,8 +124,11 @@ function broadcast(room, packet, exceptId) {
   const connections = online.get(room.id);
   if (!connections) return;
   connections.forEach((ws, id) => {
-    if (id !== exceptId) send(ws, packet);
+    if (id !== exceptId) {
+      send(ws, packet);
+    }
   });
+  console.log('[broadcast] Done');
 }
 
 // Two people arriving with the same (or nearly the same) color get nudged apart, so you can tell them apart.
@@ -561,16 +570,25 @@ function rebase(text, prefix) {
 function membersOf(room) {
   const connections = online.get(room.id);
   if (!connections) return [];
-  return [...connections.entries()].map(([id, socket]) => ({
-    id,
-    name: room.people[id].name,
-    color: room.people[id].color,
-    isHost: id === room.ownerId,
-    joinedAt: room.people[id].joinedAt,
-    where: socket.where ?? '',
-    role: roleOf(room, id),
-    agent: Boolean(room.people[id].agent),
-  }));
+  try {
+    return [...connections.entries()].map(([id, socket]) => {
+      const person = room.people[id];
+      if (!person) return null;
+      return {
+        id,
+        name: person.name,
+        color: person.color,
+        isHost: id === room.ownerId,
+        joinedAt: person.joinedAt,
+        where: person.where ?? socket.where ?? '',
+        role: roleOf(room, id),
+        agent: Boolean(person.agent),
+      };
+    }).filter(Boolean);
+  } catch (error) {
+    console.error('[membersOf] Error:', error);
+    return [];
+  }
 }
 
 function addMessage(room, message) {
@@ -706,6 +724,7 @@ function attach(ws, room, id, name, color, announce, agent = false) {
     joinedAt: existing?.joinedAt ?? new Date().toISOString(),
     ip: ws.ip ?? '',
     agent,
+    where: existing?.where ?? '',
   };
   // Optionally, new people start as viewers until the owner or an admin lets them in.
   // AI helpers get this every time they join until someone has explicitly set their role.
@@ -726,6 +745,7 @@ function attach(ws, room, id, name, color, announce, agent = false) {
   connections.set(id, ws);
   ws.ctx = { roomId: room.id, id };
 
+  const members = membersOf(room);
   send(ws, {
     type: 'snapshot',
     roomId: room.id,
@@ -740,16 +760,19 @@ function attach(ws, room, id, name, color, announce, agent = false) {
     settings: room.settings,
     channels: room.channels,
     messages: room.messages,
-    members: membersOf(room),
+    members,
   });
   const repo = repoFor(room);
   send(ws, gitPacket(room, repo));
   send(ws, { type: 'files', files: repo ? repo.list() : [] });
   send(ws, { type: 'trash', items: repo ? repo.trashList() : [] });
+  console.log('[attach] Trash sent');
   send(ws, { type: 'preview', rev: previewRevs.get(room.id) ?? 0 });
   sendBans(ws, room, id);
   if (!previous && announce && !agent) addSystemMessage(room, name + ' joined the room.');
+  console.log('[attach] Broadcasting members update');
   broadcast(room, { type: 'members', members: membersOf(room) });
+  console.log('[attach] Broadcast done');
   scheduleSave();
 }
 
@@ -845,6 +868,7 @@ function handle(ws, msg) {
       kind,
       text,
       createdAt: new Date().toISOString(),
+      reactions: [],
     });
     return;
   }
@@ -995,8 +1019,39 @@ function handle(ws, msg) {
   }
 
   if (msg.type === 'here') {
-    ws.where = cleanText(msg.where, 80);
+    const where = cleanText(msg.where, 80);
+    ws.where = where;
+    room.people[ctx.id].where = where;
     broadcast(room, { type: 'members', members: membersOf(room) });
+    return;
+  }
+
+  if (msg.type === 'typing') {
+    if (typeof msg.channelId !== 'string') return;
+    if (!room.channels.some((channel) => channel.id === msg.channelId)) return;
+    const isTyping = msg.typing === true;
+    broadcast(room, { type: 'typing', channelId: msg.channelId, userId: ctx.id, typing: isTyping }, ctx.id);
+    return;
+  }
+
+  if (msg.type === 'react') {
+    if (!can(room, ctx.id, 'chat')) return;
+    if (typeof msg.messageId !== 'string' || typeof msg.emoji !== 'string') return;
+    const emoji = msg.emoji.trim();
+    if (!emoji || emoji.length > 10) return;
+    const message = room.messages.find((m) => m.id === msg.messageId);
+    if (!message) return;
+    if (!message.reactions) message.reactions = [];
+    const existing = message.reactions.find((r) => r.emoji === emoji && r.userId === ctx.id);
+    if (existing) {
+      // Toggle off
+      message.reactions = message.reactions.filter((r) => !(r.emoji === emoji && r.userId === ctx.id));
+    } else {
+      // Toggle on
+      message.reactions.push({ emoji, userId: ctx.id, userName: room.people[ctx.id].name });
+    }
+    broadcast(room, { type: 'react', messageId: msg.messageId, reactions: message.reactions });
+    scheduleSave();
     return;
   }
 
@@ -1190,7 +1245,13 @@ wss.on('connection', (ws, req) => {
     } catch {
       return;
     }
-    if (isRecord(msg) && typeof msg.type === 'string') handle(ws, msg);
+    if (isRecord(msg) && typeof msg.type === 'string') {
+      try {
+        handle(ws, msg);
+      } catch (error) {
+        console.error('[handle] Error processing message:', msg.type, error);
+      }
+    }
   });
   ws.on('close', () => detach(ws));
   ws.on('error', () => {});

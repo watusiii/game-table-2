@@ -55,6 +55,7 @@ export interface ChatMessage {
   kind: MessageKind;
   text: string;
   createdAt: string;
+  reactions?: Array<{ emoji: string; userId: string; userName: string }>;
 }
 
 export interface RoomMember {
@@ -73,6 +74,8 @@ export interface CursorUpdate {
   id: string;
   x: number;
   y: number;
+  typing?: boolean;
+  channelId?: string;
 }
 
 export interface OpenFile {

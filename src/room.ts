@@ -351,6 +351,16 @@ export class RoomClient {
     return this.send({ type: 'chat', channelId, text, kind });
   }
 
+  sendTyping(channelId: string, typing: boolean): void {
+    if (this.snapshot.status !== 'online') return;
+    this.send({ type: 'typing', channelId, typing });
+  }
+
+  sendReaction(messageId: string, emoji: string): void {
+    if (this.snapshot.status !== 'online') return;
+    this.send({ type: 'react', messageId, emoji });
+  }
+
   createChannel(nameInput: string): boolean {
     const name = cleanChannelName(nameInput);
     if (!name || this.snapshot.status !== 'online') return false;
@@ -713,6 +723,17 @@ export class RoomClient {
 
     if (value.type === 'members' && Array.isArray(value.members)) {
       this.patch({ members: value.members as RoomMember[] });
+      return;
+    }
+
+    if (value.type === 'typing' && typeof value.channelId === 'string' && typeof value.userId === 'string' && typeof value.typing === 'boolean') {
+      this.cursorListeners.forEach((listener) => listener({ id: value.userId, x: -1, y: -1, typing: value.typing, channelId: value.channelId }));
+      return;
+    }
+
+    if (value.type === 'react' && typeof value.messageId === 'string' && Array.isArray(value.reactions)) {
+      const messages = this.snapshot.messages.map((m) => m.id === value.messageId ? { ...m, reactions: value.reactions } : m);
+      this.patch({ messages });
       return;
     }
 

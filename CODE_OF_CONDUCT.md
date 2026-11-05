@@ -2,6 +2,7 @@
 
 This is a place for making things together. To keep it that way:
 
+-Do not send multiple message bubbles for a single response. put everything in one chat.
 - Be kind and assume good intent. Disagree with ideas, not people.
 - No harassment, hate, or personal attacks.
 - Do not share other people's private information.

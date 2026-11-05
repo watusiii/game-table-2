@@ -14,6 +14,7 @@ interface RoomUi {
   channelList: HTMLElement;
   channelTitle: HTMLElement;
   messages: HTMLElement;
+  typingIndicator: HTMLElement;
   input: HTMLTextAreaElement;
   sendButton: HTMLButtonElement;
   membersTitle: HTMLElement;
@@ -79,6 +80,10 @@ let shownNoticeSeq = 0;
 let renderedMembersKey = '';
 let toastTimer: number | undefined;
 const cursorEls = new Map<string, { element: HTMLElement; timer: number }>();
+const typingUsers = new Map<string, { name: string; timer: number }>();
+let activeEmojiPicker: HTMLElement | null = null;
+
+const COMMON_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '😡', '🎉', '🚀', '👀', '💯', '✅', '❌', '🔥', '💡', '🤔', '👏', '🙏', '💪', '🎯', '⭐'];
 
 // Whether the server lets you do something. The server checks too; this just keeps the screen honest.
 function can(action: string): boolean {
@@ -103,6 +108,101 @@ function el<K extends keyof HTMLElementTagNameMap>(
   if (className) element.className = className;
   if (text) element.textContent = text;
   return element;
+}
+
+function textWithLinks(className: string, text: string): HTMLDivElement {
+  const container = el('div', className);
+  const urlPattern = /(https?:\/\/[^\s]+)/g;
+  const parts = text.split(urlPattern);
+
+  parts.forEach((part, i) => {
+    if (i % 2 === 0) {
+      // Text part
+      if (part) container.appendChild(document.createTextNode(part));
+    } else {
+      // URL part
+      const link = el('a', '', part);
+      link.href = part;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      container.appendChild(link);
+    }
+  });
+
+  return container;
+}
+
+// Modular typing animation - easy to change later
+function createTypingAnimation(): HTMLElement {
+  const dots = el('span', 'typing-dots');
+  dots.textContent = '●●●';
+  return dots;
+}
+
+function updateTypingIndicator(view: RoomUi): void {
+  const typing = Array.from(typingUsers.entries())
+    .filter(([_, data]) => data.name)
+    .map(([_, data]) => data.name);
+
+  if (typing.length === 0) {
+    view.typingIndicator.hidden = true;
+    return;
+  }
+
+  view.typingIndicator.hidden = false;
+  const names = typing.length === 1
+    ? typing[0]
+    : typing.length === 2
+    ? typing.join(' and ')
+    : typing.slice(0, -1).join(', ') + ', and ' + typing[typing.length - 1];
+
+  const text = typing.length === 1 ? ' is typing' : ' are typing';
+  view.typingIndicator.replaceChildren(
+    document.createTextNode(names + text),
+    document.createTextNode(' '),
+    createTypingAnimation(),
+  );
+}
+
+function closeEmojiPicker(): void {
+  if (activeEmojiPicker) {
+    activeEmojiPicker.remove();
+    activeEmojiPicker = null;
+  }
+}
+
+function showEmojiPicker(anchorButton: HTMLElement, onSelect: (emoji: string) => void): void {
+  closeEmojiPicker();
+
+  const picker = el('div', 'emoji-picker');
+  COMMON_EMOJIS.forEach((emoji) => {
+    const btn = el('button', 'emoji-btn');
+    btn.textContent = emoji;
+    btn.type = 'button';
+    btn.addEventListener('click', () => {
+      onSelect(emoji);
+      closeEmojiPicker();
+    });
+    picker.append(btn);
+  });
+
+  // Position near button
+  const rect = anchorButton.getBoundingClientRect();
+  picker.style.position = 'fixed';
+  picker.style.left = rect.left + 'px';
+  picker.style.top = (rect.bottom + 4) + 'px';
+
+  document.body.append(picker);
+  activeEmojiPicker = picker;
+
+  // Close on click outside
+  const closeOnOutside = (e: MouseEvent): void => {
+    if (!picker.contains(e.target as Node) && e.target !== anchorButton) {
+      closeEmojiPicker();
+      document.removeEventListener('click', closeOnOutside);
+    }
+  };
+  setTimeout(() => document.addEventListener('click', closeOnOutside), 0);
 }
 
 function button(text: string, onClick?: () => void): HTMLButtonElement {
@@ -456,6 +556,8 @@ function buildRoom(root: HTMLDivElement, snapshot: RoomSnapshot): RoomUi {
   const main = el('main', 'main');
   const channelTitle = el('header', 'bar');
   const messages = el('div', 'messages');
+  const typingIndicator = el('div', 'typing-indicator');
+  typingIndicator.hidden = true;
   const composer = el('form', 'composer');
   const input = el('textarea');
   input.rows = 2;
@@ -475,6 +577,8 @@ function buildRoom(root: HTMLDivElement, snapshot: RoomSnapshot): RoomUi {
     slashMenu.hidden = true;
     input.focus();
   };
+  let typingTimer: number | undefined;
+  let isTyping = false;
   const refreshSlashMenu = (): void => {
     const matches = slashMatches();
     slashMenu.replaceChildren(
@@ -489,6 +593,22 @@ function buildRoom(root: HTMLDivElement, snapshot: RoomSnapshot): RoomUi {
       }),
     );
     slashMenu.hidden = !matches.length;
+
+    // Typing indicator
+    if (activeChannelId && input.value.trim()) {
+      if (!isTyping) {
+        isTyping = true;
+        room.sendTyping(activeChannelId, true);
+      }
+      window.clearTimeout(typingTimer);
+      typingTimer = window.setTimeout(() => {
+        isTyping = false;
+        room.sendTyping(activeChannelId, false);
+      }, 2_000);
+    } else if (isTyping) {
+      isTyping = false;
+      if (activeChannelId) room.sendTyping(activeChannelId, false);
+    }
   };
   input.addEventListener('input', refreshSlashMenu);
   input.addEventListener('blur', () => {
@@ -498,7 +618,13 @@ function buildRoom(root: HTMLDivElement, snapshot: RoomSnapshot): RoomUi {
   composer.addEventListener('submit', (event) => {
     event.preventDefault();
     slashMenu.hidden = true;
-    if (activeChannelId && room.sendMessage(input.value, activeChannelId)) input.value = '';
+    if (activeChannelId && room.sendMessage(input.value, activeChannelId)) {
+      input.value = '';
+      if (isTyping) {
+        isTyping = false;
+        room.sendTyping(activeChannelId, false);
+      }
+    }
     input.focus();
   });
   input.addEventListener('keydown', (event) => {
@@ -538,7 +664,7 @@ function buildRoom(root: HTMLDivElement, snapshot: RoomSnapshot): RoomUi {
   historyPanel.hidden = true;
   filePane.append(fileTitle, fileTools, historyPanel, fileNotice, fileWrap);
 
-  main.append(channelTitle, messages, composer, filePane);
+  main.append(channelTitle, messages, typingIndicator, composer, filePane);
 
   // Right: members
   const membersSide = el('aside', 'members');
@@ -656,6 +782,7 @@ function buildRoom(root: HTMLDivElement, snapshot: RoomSnapshot): RoomUi {
     channelList,
     channelTitle,
     messages,
+    typingIndicator,
     input,
     sendButton,
     membersTitle,
@@ -851,14 +978,14 @@ function renderPreview(view: RoomUi, snapshot: RoomSnapshot): void {
   }
 }
 
-// Where a member is, as text: "# general" or a file name.
+// Where a member is, as text: "# general" or a file name, or agent status.
 function whereLabel(snapshot: RoomSnapshot, where: string): string {
   if (where.startsWith('channel:')) {
     const channel = snapshot.channels.find((candidate) => candidate.id === where.slice(8));
     return channel ? '# ' + channel.name : '';
   }
   if (where.startsWith('file:')) return where.slice(5);
-  return '';
+  return where;
 }
 
 function presentAt(snapshot: RoomSnapshot, where: string): RoomMember[] {
@@ -1189,7 +1316,47 @@ function renderMessage(message: ChatMessage): HTMLElement {
     el('span', 'who', message.authorName),
     el('span', 'time', formatTime(message.createdAt)),
   );
-  row.append(head, el('div', 'msg-text', message.text));
+  row.append(head, textWithLinks('msg-text', message.text));
+
+  // Reactions
+  if (message.reactions && message.reactions.length > 0) {
+    const reactionBar = el('div', 'reactions');
+    const grouped = new Map<string, Array<{ userId: string; userName: string }>>();
+    for (const r of message.reactions) {
+      if (!grouped.has(r.emoji)) grouped.set(r.emoji, []);
+      grouped.get(r.emoji)!.push({ userId: r.userId, userName: r.userName });
+    }
+    for (const [emoji, users] of grouped) {
+      const btn = el('button', 'reaction');
+      btn.textContent = emoji + ' ' + users.length;
+      btn.title = users.map((u) => u.userName).join(', ');
+      const hasReacted = users.some((u) => u.userId === current.myId);
+      if (hasReacted) btn.classList.add('reacted');
+      btn.addEventListener('click', () => room.sendReaction(message.id, emoji));
+      reactionBar.append(btn);
+    }
+    // Add reaction button
+    const addBtn = el('button', 'reaction add-reaction');
+    addBtn.textContent = '+';
+    addBtn.title = 'Add reaction';
+    addBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      showEmojiPicker(addBtn, (emoji) => room.sendReaction(message.id, emoji));
+    });
+    reactionBar.append(addBtn);
+    row.append(reactionBar);
+  } else {
+    // Add reaction button when no reactions yet
+    const addBtn = el('button', 'reaction add-reaction');
+    addBtn.textContent = '+';
+    addBtn.title = 'Add reaction';
+    addBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      showEmojiPicker(addBtn, (emoji) => room.sendReaction(message.id, emoji));
+    });
+    row.append(addBtn);
+  }
+
   return row;
 }
 
@@ -1354,7 +1521,28 @@ function renderSnapshot(root: HTMLDivElement, snapshot: RoomSnapshot): void {
 
 export function mountApp(root: HTMLDivElement): void {
   room.subscribe((snapshot) => renderSnapshot(root, snapshot));
-  room.onCursor((cursor) => showCursor(cursor.id, cursor.x, cursor.y));
+  room.onCursor((cursor) => {
+    // Handle typing indicator
+    if (cursor.typing !== undefined && cursor.channelId === activeChannelId && ui) {
+      const member = current.members.find((m) => m.id === cursor.id);
+      if (cursor.typing && member) {
+        const existing = typingUsers.get(cursor.id);
+        if (existing) window.clearTimeout(existing.timer);
+        const timer = window.setTimeout(() => {
+          typingUsers.delete(cursor.id);
+          if (ui) updateTypingIndicator(ui);
+        }, 5_000);
+        typingUsers.set(cursor.id, { name: member.name, timer });
+      } else {
+        const existing = typingUsers.get(cursor.id);
+        if (existing) window.clearTimeout(existing.timer);
+        typingUsers.delete(cursor.id);
+      }
+      updateTypingIndicator(ui);
+    }
+    // Handle cursor position
+    showCursor(cursor.id, cursor.x, cursor.y);
+  });
   document.addEventListener('pointermove', (event) => {
     if (!ui || event.pointerType === 'touch') return;
     room.sendCursor(event.clientX / window.innerWidth, event.clientY / window.innerHeight);
