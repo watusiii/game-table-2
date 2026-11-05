@@ -727,12 +727,17 @@ export class RoomClient {
     }
 
     if (value.type === 'typing' && typeof value.channelId === 'string' && typeof value.userId === 'string' && typeof value.typing === 'boolean') {
-      this.cursorListeners.forEach((listener) => listener({ id: value.userId, x: -1, y: -1, typing: value.typing, channelId: value.channelId }));
+      const userId = value.userId as string;
+      const typing = value.typing as boolean;
+      const channelId = value.channelId as string;
+      this.cursorListeners.forEach((listener) => listener({ id: userId, x: -1, y: -1, typing, channelId }));
       return;
     }
 
     if (value.type === 'react' && typeof value.messageId === 'string' && Array.isArray(value.reactions)) {
-      const messages = this.snapshot.messages.map((m) => m.id === value.messageId ? { ...m, reactions: value.reactions } : m);
+      const messageId = value.messageId as string;
+      const reactions = value.reactions as Array<{ emoji: string; userId: string; userName: string }>;
+      const messages = this.snapshot.messages.map((m) => m.id === messageId ? { ...m, reactions } : m);
       this.patch({ messages });
       return;
     }
