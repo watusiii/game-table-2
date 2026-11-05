@@ -183,10 +183,20 @@ export class FileSession {
     return this.editor;
   }
 
-  // Send everything we have. Used after a reconnect so nothing typed offline is lost.
-  pushAll(): void {
-    this.flush();
-    this.send(toBase64(Y.encodeStateAsUpdate(this.doc)));
+  // Recover offline edits without echoing the whole file back past the room's message limit.
+  pushMissing(serverUpdate: string): void {
+    let update: Uint8Array;
+    try {
+      const serverVector = Y.encodeStateVectorFromUpdate(fromBase64(serverUpdate));
+      update = Y.encodeStateAsUpdate(this.doc, serverVector);
+    } catch {
+      return;
+    }
+    // The diff includes pending edits too; sending their queued batches first would duplicate them.
+    window.clearTimeout(this.batchTimer);
+    this.batchTimer = undefined;
+    this.queued = [];
+    this.send(toBase64(update));
   }
 
   dispose(): void {
